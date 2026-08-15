@@ -1115,20 +1115,67 @@ body {
   font-weight: 600;
 }
 
-/* ---------- update banner ---------- */
-.update-banner {
-  position: fixed;
-  top: 52px;
-  left: 50%;
-  transform: translateX(-50%);
+/* ---------- update button (title bar) ---------- */
+.tb-update {
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: var(--bg-panel);
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+}
+
+.update-btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 7px;
+  padding: 5px 12px;
+  cursor: pointer;
   border: 1.5px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  padding: 10px 16px;
-  font-size: 14.5px;
-  z-index: 60;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  white-space: nowrap;
+}
+
+.update-btn.pulse {
+  animation: update-pulse 1.6s ease-in-out infinite;
+}
+
+.update-btn.busy {
+  cursor: default;
+  opacity: 0.85;
+  border-color: var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+}
+
+.update-btn.ready {
+  background: var(--go);
+  border-color: var(--go);
+  color: #fff;
+}
+
+.update-btn.ready:hover {
+  background: var(--go-strong);
+}
+
+.update-btn.failed {
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+
+@keyframes update-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-btn.pulse {
+    animation: none;
+  }
 }

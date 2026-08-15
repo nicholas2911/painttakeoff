@@ -31,7 +31,7 @@ import {
   perimeterEdgesWithCutouts,
   type FillMask,
 } from './measure/floodfill';
-import type { PagePoint, ToolMode, ViewTransform } from './types';
+import type { PagePoint, ToolMode, UpdateState, ViewTransform } from './types';
 import Toolbar from './components/Toolbar';
 import TitleBar from './components/TitleBar';
 import Viewer, { type ViewerHandle, type PageRaster } from './components/Viewer';
@@ -105,7 +105,7 @@ export default function App() {
   const [toolHint, setToolHint] = useState<'measure' | 'quickArea' | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [winMaximized, setWinMaximized] = useState(false);
-  const [updateReady, setUpdateReady] = useState<string | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   const isElectron = !!window.painttakeoff?.windowControls;
   const viewerRef = useRef<ViewerHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -135,11 +135,8 @@ export default function App() {
   useEffect(() => {
     const updates = window.painttakeoff?.updates;
     if (!updates) return;
-    updates.onAvailable(() => {
-      showToast('A new version is downloading in the background…');
-    });
-    updates.onDownloaded((version) => setUpdateReady(version));
-  }, [showToast]);
+    updates.onState((s) => setUpdateState(s.phase === 'idle' ? null : s));
+  }, []);
 
   /** Clear any in-progress clicking/dragging. Always safe. */
   const resetInteraction = useCallback(() => {
@@ -711,6 +708,7 @@ export default function App() {
           fileName={plan?.name ?? null}
           maximized={winMaximized}
           onMaximizedChange={setWinMaximized}
+          update={updateState}
         />
       )}
       <input
@@ -831,23 +829,6 @@ export default function App() {
         {toast && <span className="toast">{toast}</span>}
       </div>
       {dragging && <div className="drop-veil">Drop the PDF anywhere to open it</div>}
-
-      {updateReady && (
-        <div className="update-banner">
-          <span>
-            A new version is ready{updateReady ? ` (${updateReady})` : ''} — restart to update.
-          </span>
-          <button
-            className="tool go-button"
-            onClick={() => window.painttakeoff?.updates?.restart()}
-          >
-            Restart now
-          </button>
-          <button className="tool" onClick={() => setUpdateReady(null)}>
-            Later
-          </button>
-        </div>
-      )}
 
       {toolHint && (
         <div className="measure-hint">

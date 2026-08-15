@@ -114,9 +114,14 @@ ipcMain.handle('read-pdf', async (_event, p) => {
 });
 
 // ---------- auto-updates (GitHub Releases) ----------
-// Packaged mode only, never in dev. All events are logged to
-// %APPDATA%/PaintTakeoff/painttakeoff-updater.log. Any failure (offline,
-// no releases yet, bad config) is logged and otherwise ignored.
+// Packaged mode only, never in dev. MANUAL flow: the app checks quietly
+// (autoDownload=false) and the user drives download + restart from a
+// TitleBar button. Main pushes a single state object:
+//   { phase: 'available'|'downloading'|'ready'|'error', version?, percent? }
+// Check failures (offline, no releases yet) stay silent and are only
+// logged to %APPDATA%/PaintTakeoff/painttakeoff-updater.log.
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
 function initUpdates(win) {
   if (isDev) return;
   let autoUpdater;
@@ -132,30 +137,75 @@ function initUpdates(win) {
     error: (m) => updateLog('error', String(m)),
     debug: (m) => updateLog('debug', String(m)),
   };
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  let state = { phase: 'idle' };
+  let downloading = false;
+  let checkInFlight = false;
+
+  const send = (next) => {
+    state = next;
+    if (!win.isDestroyed()) win.webContents.send('update-state', next);
+  };
 
   autoUpdater.on('checking-for-update', () => updateLog('info', 'checking for update'));
   autoUpdater.on('update-available', (info) => {
     updateLog('info', `update available: ${info.version}`);
-    win.webContents.send('update-available', info.version);
+    send({ phase: 'available', version: info.version });
   });
   autoUpdater.on('update-not-available', () => updateLog('info', 'no update available'));
-  autoUpdater.on('update-downloaded', (info) => {
-    updateLog('info', `update downloaded: ${info.version}`);
-    win.webContents.send('update-downloaded', info.version);
+  autoUpdater.on('download-progress', (p) => {
+    send({
+      phase: 'downloading',
+      version: state.version,
+      percent: Math.max(0, Math.min(100, Math.round(p.percent))),
+    });
   });
-  autoUpdater.on('error', (err) => updateLog('error', `updater error: ${err.message}`));
+  autoUpdater.on('update-downloaded', (info) => {
+    downloading = false;
+    updateLog('info', `update downloaded: ${info.version}`);
+    send({ phase: 'ready', version: info.version });
+  });
+  autoUpdater.on('error', (err) => {
+    updateLog('error', `updater error: ${err.message}`);
+    // Only surface errors to the user when they asked for a download.
+    // Check failures (offline etc.) stay silent.
+    if (downloading) {
+      downloading = false;
+      send({ phase: 'error', version: state.version });
+    }
+  });
 
+  ipcMain.on('update-download', () => {
+    if (state.phase !== 'available' && state.phase !== 'error') return;
+    updateLog('info', `download requested by user (version ${state.version})`);
+    downloading = true;
+    send({ phase: 'downloading', version: state.version, percent: 0 });
+    autoUpdater.downloadUpdate().catch((err) => {
+      updateLog('error', `downloadUpdate failed: ${err.message}`);
+    });
+  });
   ipcMain.on('update-restart', () => {
     updateLog('info', 'restart requested by user — quitAndInstall');
     autoUpdater.quitAndInstall();
   });
 
-  updateLog('info', `update check on startup (version ${app.getVersion()})`);
-  autoUpdater.checkForUpdates().catch((err) => {
-    updateLog('warn', `update check failed (offline?): ${err.message}`);
-  });
+  const check = () => {
+    if (checkInFlight) return; // never stack overlapping checks
+    checkInFlight = true;
+    updateLog('info', 'update check');
+    autoUpdater
+      .checkForUpdates()
+      .catch((err) => updateLog('warn', `update check failed (offline?): ${err.message}`))
+      .finally(() => {
+        checkInFlight = false;
+      });
+  };
+
+  updateLog('info', `updater started (version ${app.getVersion()})`);
+  check();
+  setInterval(check, UPDATE_CHECK_INTERVAL_MS);
 }
 
 app.whenReady().then(() => {

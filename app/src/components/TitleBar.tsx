@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import type { UpdateState } from '../types';
+import UpdateButton from './UpdateButton';
 
 /**
  * Custom window title bar — Electron only (the caller renders it only when
@@ -9,8 +11,10 @@ export default function TitleBar(props: {
   fileName: string | null;
   maximized: boolean;
   onMaximizedChange(v: boolean): void;
+  update: UpdateState | null;
 }) {
   const controls = window.painttakeoff?.windowControls;
+  const updates = window.painttakeoff?.updates;
   const { onMaximizedChange } = props;
 
   useEffect(() => {
@@ -33,6 +37,15 @@ export default function TitleBar(props: {
         )}
       </div>
       <div className="tb-drag" />
+      {props.update && updates && (
+        <div className="tb-update">
+          <UpdateButton
+            state={props.update}
+            onDownload={() => updates.download()}
+            onRestart={() => updates.restart()}
+          />
+        </div>
+      )}
       <div className="tb-buttons">
         <button
           className="win-btn"

@@ -13,3 +13,10 @@ export interface ViewTransform {
 }
 
 export type ToolMode = 'pan' | 'calibrate' | 'axisCheck' | 'measure' | 'quickArea';
+
+/** Auto-update state pushed from the Electron main process. */
+export interface UpdateState {
+  phase: 'idle' | 'available' | 'downloading' | 'ready' | 'error';
+  version?: string;
+  percent?: number;
+}

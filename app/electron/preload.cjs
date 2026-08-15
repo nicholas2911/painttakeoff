@@ -27,13 +27,13 @@ contextBridge.exposeInMainWorld('painttakeoff', {
       ipcRenderer.on('window-maximize-change', (_event, maximized) => cb(maximized));
     },
   },
-  /** Auto-update events (packaged builds only). */
+  /** Auto-update events (packaged builds only; manual download flow). */
   updates: {
-    onAvailable(cb) {
-      ipcRenderer.on('update-available', (_event, version) => cb(version));
+    onState(cb) {
+      ipcRenderer.on('update-state', (_event, state) => cb(state));
     },
-    onDownloaded(cb) {
-      ipcRenderer.on('update-downloaded', (_event, version) => cb(version));
+    download() {
+      ipcRenderer.send('update-download');
     },
     restart() {
       ipcRenderer.send('update-restart');

@@ -57,7 +57,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "GITHUB_OWNER",
+      "owner": "nicholas2911",
       "repo": "painttakeoff",
       "releaseType": "release"
     }
