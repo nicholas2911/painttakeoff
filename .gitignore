@@ -1,0 +1,17 @@
+node_modules/
+dist/
+release/
+.venv/
+*.log
+
+# test harness binaries + captured screenshots
+.smoke/node_modules/
+.smoke/*.png
+
+# large binaries / hand-off packages — not for the repo
+sample-plans/*.pdf
+friend-examples/**/*.pdf
+friend-examples/preview/
+SEND-TO-FRIEND/
+SEND-TO-FRIEND.zip
+guide/*.pdf

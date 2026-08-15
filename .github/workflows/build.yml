@@ -1,0 +1,31 @@
+name: build
+
+# CI sanity on every push to main: install, typecheck, build.
+# The headless smoke tests in .smoke/ are NOT run here — they drive a
+# locally-installed Chromium binary at a fixed path and need sample-plan
+# PDFs that are intentionally not committed. Run them locally instead.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck + build web bundle
+        run: npm run build

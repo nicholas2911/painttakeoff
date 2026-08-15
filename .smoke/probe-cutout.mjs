@@ -1,0 +1,34 @@
+import { chromium } from 'playwright-core';
+const EXE = 'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
+const browser = await chromium.launch({ executablePath: EXE });
+const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
+page.on('pageerror', (e) => console.log('PAGEERROR:', e.message)); page.on('console', (m) => { if (m.text().startsWith('[qa]')) console.log(m.text()); });
+await page.goto('http://localhost:5199/', { waitUntil: 'networkidle' });
+await page.evaluate(() => localStorage.clear());
+await page.reload({ waitUntil: 'networkidle' });
+await page.setInputFiles('input[type=file]', 'C:/Users/Nicholas/Desktop/coding/paint-takeoff/friend-examples/2 Drawings - Architectural.pdf');
+await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+await page.fill('.page-input', '5');
+await page.locator('.page-input').blur();
+await page.waitForTimeout(1000);
+await page.selectOption('.preset-select', '1:75');
+await page.waitForSelector('.modal');
+await page.getByRole('button', { name: 'Skip this' }).click();
+await page.getByRole('button', { name: 'Quick Area' }).click();
+const cbox = await page.locator('.pdf-canvas').boundingBox();
+await page.mouse.click(cbox.x + 260, cbox.y + 366);
+await page.waitForSelector('.qa-card', { timeout: 10000 });
+const perim = async () => parseFloat(await page.locator('.qa-row').nth(2).locator('input').inputValue());
+const floor = async () => parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
+console.log('floor', await floor(), 'perim', await perim());
+await page.getByRole('button', { name: 'Cut out an obstacle' }).click();
+const candidates = [[225,416]];
+for (const [rx, ry] of candidates) {
+  await page.mouse.click(cbox.x + rx, cbox.y + ry);
+  await page.waitForTimeout(500);
+  const toast = await page.locator('.toast').textContent().catch(() => '');
+  const nCuts = await page.locator('.qa-cutout').count();
+  console.log(`cutout @ (${rx},${ry}): cuts=${nCuts} floor=${await floor()} perim=${await perim()} toast=${toast}`);
+}
+await page.screenshot({ path: 'probe-cutout.png' });
+await browser.close();

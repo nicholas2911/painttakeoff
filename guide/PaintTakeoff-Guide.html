@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PaintTakeoff — Quick Guide</title>
+<style>
+  :root {
+    --accent: #1a66cc;
+    --accent-soft: #e8f0fb;
+    --green: #16a34a;
+    --amber: #b45309;
+    --ink: #1c2330;
+    --muted: #5a6472;
+    --line: #dde3ec;
+    --bg: #f4f6f9;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 20px;
+    background: var(--bg);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--ink); font-size: 14px; line-height: 1.55;
+  }
+  .page { max-width: 780px; margin: 0 auto; }
+  header {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 28px 32px; margin-bottom: 22px;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-mark {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700;
+  }
+  h1 { font-size: 24px; margin: 0; }
+  .tagline { color: var(--muted); margin: 6px 0 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 22px 32px; margin-bottom: 18px;
+  }
+  h2 {
+    font-size: 16px; margin: 0 0 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .step-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: #fff; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+  }
+  h2.plain { color: var(--accent); }
+  p { margin: 8px 0; }
+  ul { margin: 8px 0; padding-left: 20px; }
+  li { margin: 5px 0; }
+  .btn {
+    display: inline-block; padding: 2px 10px; border-radius: 7px;
+    font-weight: 600; font-size: 13px;
+  }
+  .btn-blue { background: var(--accent); color: #fff; }
+  .btn-green { background: var(--green); color: #fff; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 20px;
+    font-size: 12.5px; font-weight: 600;
+  }
+  .badge-green { background: #e6f6ec; color: var(--green); border: 1px solid #b7e4c7; }
+  .badge-amber { background: #fdf3e3; color: var(--amber); border: 1px solid #f0d9ae; }
+  .kbd {
+    background: #eef1f6; border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 6px; padding: 1px 7px; font-size: 12.5px;
+    font-family: "Segoe UI", system-ui, sans-serif; font-weight: 600;
+  }
+  .tip {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    border-radius: 8px; padding: 12px 16px; margin: 12px 0;
+  }
+  .warn {
+    background: #fdf3e3; border-left: 4px solid var(--amber);
+    border-radius: 8px; padding: 12px 16px; margin: 12px 0;
+  }
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; }
+  footer { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 22px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="logo">
+      <div class="logo-mark">P</div>
+      <div>
+        <h1>PaintTakeoff — Quick Guide</h1>
+        <p class="tagline">Measure your painting plans right on screen. No training needed.</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="card">
+    <h2 class="plain">First time opening the app</h2>
+    <p>Double-click <strong>PaintTakeoff-0.1.0-portable.exe</strong>. Windows may show a blue
+    "Windows protected your PC" message — that's normal for a new app. Click
+    <strong>More info → Run anyway</strong>. Nothing is installed; the file is the whole program.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">1</span> Open a plan</h2>
+    <p>Click the big <span class="btn btn-blue">Open a Plan (PDF)</span> button and pick the PDF
+    your architect or GC sent you — or just drag the file anywhere onto the window.</p>
+    <p>Use the <span class="kbd">◀</span> <span class="kbd">▶</span> buttons (or your arrow keys)
+    to move between pages. Most painting work is on the <strong>floor plans</strong> (the A-series sheets).</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">2</span> Set the scale</h2>
+    <p>The app needs one real-world length before it can measure. Do this <strong>once per page</strong>:</p>
+    <ul>
+      <li>Click <span class="btn btn-blue">Set Scale</span>.</li>
+      <li>Click the <strong>two ends of anything whose length you know</strong> — a wall with its
+      dimension written on it is perfect. Longer lines give better accuracy.</li>
+      <li>Type the real length into the <strong>Feet</strong> and <strong>Inches</strong> boxes
+      (fractions like 6½ are fine) and hit <span class="btn btn-green">Set Scale</span>.</li>
+    </ul>
+    <p>If the plan already prints its scale, you can skip the clicking: pick it from the
+    <strong>Common scales…</strong> dropdown instead (most house plans are ¼ inch = 1 foot).</p>
+    <p>The app then offers a quick <strong>double-check</strong>: measure one more known length,
+    ideally pointing the other direction. It takes 10 seconds and catches stretched or
+    mislabeled plans. Skip it if you're in a hurry.</p>
+    <p>Watch the badge at the top of the screen:</p>
+    <p>
+      <span class="badge badge-green">Scale is set ✓</span> good to go &nbsp;·&nbsp;
+      <span class="badge badge-amber">⚠ Scale not confirmed</span> works, but double-check when you can
+    </p>
+    <div class="tip"><strong>Remembered for you:</strong> the scale is saved per page, per file.
+    Close the app and reopen the same plan tomorrow — your scale is still there.</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">3</span> Measure</h2>
+    <p>Click <span class="btn btn-blue">Measure</span>, then <strong>click to start a line and keep
+    clicking to add segments</strong> — wall to wall, around obstacles. The running total follows your
+    cursor. <strong>Double-click or Enter to finish</strong>. In a hurry, click-drag still works for a
+    quick single line.</p>
+    <p>Finished measurements <strong>stay on the page</strong> — flip to another page and come back,
+    they're still there (even after closing the app). Click one to select it; <span class="kbd">Delete</span>
+    removes it. Right-click while drawing undoes your last point.</p>
+    <p>Open <span class="btn btn-blue">Measurements</span> in the toolbar for the list of everything on
+    the page — rename any line, delete any line, and read the <strong>total at the bottom</strong>.</p>
+  </div>
+
+  <div class="card">
+    <h2 class="plain">Quick Area — rough room sizes in one click</h2>
+    <p>Once the scale is set, click <span class="btn btn-blue">Quick Area</span> and then
+    <strong>click inside a room</strong>. The app fills the room and gives you a rough floor area and
+    perimeter. Type the <strong>ceiling height</strong> and it shows the <strong>rough wall square
+    footage</strong> — the number you actually price off.</p>
+    <ul>
+      <li>Every number on the card is editable — tweak anything that looks off.</li>
+      <li><strong>Cut out an obstacle</strong> subtracts things like cabinet blocks or islands.</li>
+      <li><span class="btn btn-green">Keep this room</span> saves it into your Measurements list.</li>
+    </ul>
+    <div class="warn"><strong>It's "rough" on purpose:</strong> rooms with wide-open doorways can leak
+    into the next room, and dashed-line rooms may fill in pieces. If a fill looks wrong, cancel and
+    chain-measure the walls with the Measure tool instead.</div>
+  </div>
+
+  <div class="card">
+    <h2 class="plain">Moving around the page</h2>
+    <div class="twocol">
+      <p><strong>Zoom</strong> — Ctrl + mouse wheel, or the <span class="kbd">−</span> / <span class="kbd">+</span> buttons</p>
+      <p><strong>Pan</strong> — drag with the mouse in <em>Move Around</em> mode, or hold <span class="kbd">Space</span> and drag</p>
+      <p><strong>Fit the page</strong> — Fit ▾ menu in the zoom cluster</p>
+      <p><strong>Pages</strong> — arrow keys, or type a page number</p>
+      <p><strong>Cancel anything</strong> — <span class="kbd">Esc</span> or right-click</p>
+      <p><strong>Modes</strong> — <span class="kbd">V</span> move · <span class="kbd">C</span> set scale · <span class="kbd">M</span> measure</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="plain">Good habits</h2>
+    <ul>
+      <li><strong>Every page has its own scale.</strong> A set can mix ¼", ⅛", and metric sheets —
+      check the badge each time you flip pages.</li>
+      <li><strong>Calibrate off the longest written dimension</strong> on the sheet, never off a
+      short one — small reading errors shrink as the line gets longer.</li>
+      <li><strong>Scanned plans stretch.</strong> If the double-check complains, recalibrate using a
+      dimension running the other direction.</li>
+      <li><strong>Feet-and-inches or meters</strong> — the toggle in the toolbar switches everything,
+      including the input boxes.</li>
+      <li><strong>The amber badge is a button.</strong> If a page says "Scale not confirmed — fix",
+      click it any time to run the double-check and turn it green.</li>
+      <li><strong>Need an unusual scale?</strong> "Common scales… → Custom…" lets you type any
+      ratio (1:60) or inches-per-foot (3/16" = 1').</li>
+    </ul>
+    <div class="warn"><strong>Coming next:</strong> automatic quoting — paint codes, opening
+    deductions, gallons and labour hours from your measurements, exported to a priceable sheet.
+    This guide covers the measuring foundation it builds on.</div>
+  </div>
+
+  <footer>PaintTakeoff · questions or weird plan files → send them back to Nicholas with a note about what you tried</footer>
+
+</div>
+</body>
+</html>

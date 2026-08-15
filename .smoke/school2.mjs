@@ -1,0 +1,30 @@
+import { chromium } from 'playwright-core';
+const EXE = 'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
+const errors = [];
+const browser = await chromium.launch({ executablePath: EXE });
+const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('pageerror', (e) => errors.push(e.message));
+await page.goto('http://localhost:5199/', { waitUntil: 'networkidle' });
+await page.setInputFiles('input[type=file]',
+  'C:/Users/Nicholas/paint-takeoff/sample-plans/commercial-school-bid-set-princeton.pdf');
+await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+const w0 = await page.evaluate(() => document.querySelector('.pdf-canvas').width);
+await page.locator('.viewer').hover({ position: { x: 700, y: 450 } });
+await page.keyboard.down('Control');
+const t1 = Date.now();
+await page.mouse.wheel(0, -800);
+await page.keyboard.up('Control');
+await page.waitForFunction((prev) => document.querySelector('.pdf-canvas').width !== prev, w0, { timeout: 30000 });
+await page.waitForTimeout(300);
+const w1 = await page.evaluate(() => document.querySelector('.pdf-canvas').width);
+console.log(`zoom re-render: ${w0} -> ${w1}px in ${Date.now() - t1}ms, zoom ${await page.locator('.zoom-pct').textContent()}`);
+// pan around at high zoom — region re-renders
+const t2 = Date.now();
+await page.mouse.move(700, 450); await page.mouse.down();
+await page.mouse.move(300, 250, { steps: 8 }); await page.mouse.up();
+await page.waitForTimeout(700);
+console.log(`pan re-render settled in ~${Date.now() - t2}ms, canvas ${await page.evaluate(() => document.querySelector('.pdf-canvas').width)}px`);
+console.log('errors:', errors.length ? errors : 'none');
+await browser.close();
+process.exit(errors.length ? 1 : 0);
