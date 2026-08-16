@@ -332,16 +332,15 @@ export function CustomScaleModal(props: {
 /** Discoverable shortcut list ("?" button in the toolbar). */
 export function ShortcutsModal(props: { onClose(): void }) {
   const rows: [string, string][] = [
-    ['Drag', 'Move around the plan'],
+    ['Drag (left button)', 'Move around the plan — works in every mode'],
     ['Scroll', 'Move up and down'],
     ['Ctrl + scroll', 'Zoom in and out'],
-    ['Hold Space + drag', 'Move around while using any tool'],
     ['←  →', 'Previous / next page'],
     ['V · C · M · A', 'Move Around · Set Scale · Measure · Quick Area'],
-    ['+  −', 'Zoom in / out'],
-    ['Enter or double-click', 'Finish a measurement'],
+    ['Click, click…', 'Add points when measuring'],
+    ['Double-click or Enter', 'Finish a measurement'],
+    ['Ctrl + Z', 'Undo a point · remove the last measurement'],
     ['Delete', 'Remove the selected measurement'],
-    ['Right-click', 'Undo last point / cancel'],
     ['Esc', 'Cancel whatever you’re doing'],
   ];
   return (

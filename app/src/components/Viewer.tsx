@@ -51,16 +51,19 @@ interface ViewerProps {
   measurements: Measurement[];
   selectedId: string | null;
   areaOverlays: AreaOverlay[];
+  qaDrawing: boolean;
   onTwoPoints(kind: 'calibrate' | 'axisCheck', p1: PagePoint, p2: PagePoint): void;
   onFirstPointPlaced(): void;
   onCancelIntent(): void;
   onFinishMeasurement(points: PagePoint[]): void;
+  onFinishCutoutPolygon(points: PagePoint[]): void;
   onLiveMeasure(info: LiveMeasure | null): void;
   onSelect(id: string | null): void;
   onDeleteMeasurement(id: string): void;
   onQuickAreaClick(p: PagePoint): void;
   resetSignal: number;
   finishSignal: number;
+  chainUndoSignal: number;
 }
 
 const MIN_ZOOM = 0.05;
@@ -430,17 +433,20 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
           measurements={props.measurements}
           selectedId={props.selectedId}
           areaOverlays={props.areaOverlays}
+          qaDrawing={props.qaDrawing}
           onTwoPoints={props.onTwoPoints}
           onPanBy={onPanBy}
           onFirstPointPlaced={props.onFirstPointPlaced}
           onCancelIntent={props.onCancelIntent}
           onFinishMeasurement={props.onFinishMeasurement}
+          onFinishCutoutPolygon={props.onFinishCutoutPolygon}
           onLiveMeasure={props.onLiveMeasure}
           onSelect={props.onSelect}
           onDeleteMeasurement={props.onDeleteMeasurement}
           onQuickAreaClick={props.onQuickAreaClick}
           resetSignal={props.resetSignal}
           finishSignal={props.finishSignal}
+          chainUndoSignal={props.chainUndoSignal}
         />
       )}
     </div>

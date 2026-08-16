@@ -6,9 +6,14 @@ import type { Measurement } from '../measure/measureStore';
 /**
  * OverlayLayer — the interaction/drawing layer above the PDF canvas.
  * Everything is stored in page space (PDF points, top-left origin) so it
- * survives pan/zoom/page switches. Hosts: set-scale picking, double-check
- * picking, chain measuring, finished-measurement rendering + selection,
- * and Quick Area region overlays.
+ * survives pan/zoom/page switches.
+ *
+ * Interaction model (v0.3):
+ *  - Left-DRAG always pans, in every mode. A press released within ~5px is
+ *    a CLICK (tool action); beyond that it's a pan.
+ *  - Measure / cut-out drawing: click adds a point, double-click (or Enter)
+ *    finishes, Ctrl+Z undoes a point, Esc cancels.
+ *  - Chain points snap to existing measurement vertices within ~10px.
  */
 
 export interface AreaOverlay {
@@ -34,43 +39,78 @@ interface OverlayProps {
   measurements: Measurement[];
   selectedId: string | null;
   areaOverlays: AreaOverlay[];
+  /** Quick Area: polygon cut-out drawing is active. */
+  qaDrawing: boolean;
   onTwoPoints(kind: 'calibrate' | 'axisCheck', p1: PagePoint, p2: PagePoint): void;
   onFirstPointPlaced(): void;
   onPanBy(dx: number, dy: number): void;
   onCancelIntent(): void;
   onFinishMeasurement(points: PagePoint[]): void;
+  onFinishCutoutPolygon(points: PagePoint[]): void;
   onLiveMeasure(info: LiveMeasure | null): void;
   onSelect(id: string | null): void;
   onDeleteMeasurement(id: string): void;
   onQuickAreaClick(p: PagePoint): void;
   /** Bump to clear in-progress interaction (Escape). */
   resetSignal: number;
-  /** Bump to finish the current measurement chain (Enter / double-click). */
+  /** Bump to finish the current chain (Enter / double-click). */
   finishSignal: number;
+  /** Bump to remove the last chain point (Ctrl+Z). */
+  chainUndoSignal: number;
 }
 
-const CLICK_SLOP = 4; // px: below this a press is a click, above it a drag
+const CLICK_SLOP = 5; // px: below this a press is a click, beyond it a pan
+const SNAP_PX = 10; // screen px snap radius
 
 export default function Overlay(props: OverlayProps) {
   const { view, size, mode, spaceDown, pointsPerMeter, units } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pending, setPending] = useState<PagePoint | null>(null); // calibrate/axisCheck first click
-  const [chain, setChain] = useState<PagePoint[]>([]); // committed measure points
+  const [chain, setChain] = useState<PagePoint[]>([]); // committed chain points
   const [cursor, setCursor] = useState<PagePoint | null>(null);
+  const [snapped, setSnapped] = useState<PagePoint | null>(null);
   const panRef = useRef<{ x: number; y: number } | null>(null);
   const downRef = useRef<{ x: number; y: number } | null>(null);
-  const draggingRef = useRef(false);
   const deleteBoxRef = useRef<{ x: number; y: number; w: number; h: number; id: string } | null>(null);
 
-  // Colors readable on white plans in both themes.
   const cScale = '#e15b00'; // set-scale picking
   const cMeasure = props.dark ? '#3ecf7a' : '#0d8a4f'; // finished measurements
   const cActive = '#1a66cc'; // active chain / selection
+
+  /** Chain drawing is used by Measure and by Quick Area's polygon cut-out. */
+  const chainMode = mode === 'measure' || (mode === 'quickArea' && props.qaDrawing);
 
   const toPage = (sx: number, sy: number): PagePoint => ({
     x: (sx - view.panX) / view.zoom,
     y: (sy - view.panY) / view.zoom,
   });
+
+  // ---------- snapping ----------
+  const snapTo = (p: PagePoint): PagePoint | null => {
+    if (!chainMode) return null;
+    const tol = SNAP_PX / view.zoom;
+    let best: PagePoint | null = null;
+    let bestD = tol;
+    // Close the loop: snap to the chain's own first point.
+    if (mode === 'measure' && chain.length >= 2) {
+      const d = pointDistance(p, chain[0]);
+      if (d < bestD) {
+        bestD = d;
+        best = chain[0];
+      }
+    }
+    for (const m of props.measurements) {
+      if (m.kind !== 'length') continue;
+      for (const v of m.points) {
+        const d = pointDistance(p, v);
+        if (d < bestD) {
+          bestD = d;
+          best = v;
+        }
+      }
+    }
+    return best;
+  };
 
   const chainMeters = (pts: PagePoint[]): number => {
     if (!pointsPerMeter) return 0;
@@ -84,8 +124,13 @@ export default function Overlay(props: OverlayProps) {
     const cleaned = pts.filter((p, i) => i === 0 || pointDistance(p, pts[i - 1]) * view.zoom > 2);
     setChain([]);
     setCursor(null);
+    setSnapped(null);
     props.onLiveMeasure(null);
-    if (cleaned.length >= 2) props.onFinishMeasurement(cleaned);
+    if (mode === 'quickArea') {
+      if (cleaned.length >= 3) props.onFinishCutoutPolygon(cleaned);
+    } else if (cleaned.length >= 2) {
+      props.onFinishMeasurement(cleaned);
+    }
   };
 
   // External reset (Escape / mode change)
@@ -93,6 +138,7 @@ export default function Overlay(props: OverlayProps) {
     setPending(null);
     setChain([]);
     setCursor(null);
+    setSnapped(null);
     props.onLiveMeasure(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.resetSignal, mode]);
@@ -100,15 +146,29 @@ export default function Overlay(props: OverlayProps) {
   // Enter / double-click finish
   const chainRef = useRef(chain);
   chainRef.current = chain;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   useEffect(() => {
     if (props.finishSignal > 0 && chainRef.current.length >= 2) finishChain(chainRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.finishSignal]);
 
+  // Ctrl+Z removes the last chain point
+  useEffect(() => {
+    if (props.chainUndoSignal > 0) {
+      setChain((prev) => {
+        const next = prev.slice(0, -1);
+        if (next.length === 0) props.onLiveMeasure(null);
+        return next;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.chainUndoSignal]);
+
   // Live measure reporting for the guidance bar
   useEffect(() => {
-    if (mode !== 'measure' || chain.length === 0 || !pointsPerMeter) {
-      if (mode === 'measure' && chain.length === 0) props.onLiveMeasure(null);
+    if (!chainMode || chain.length === 0 || !pointsPerMeter) {
+      if (chainMode && chain.length === 0) props.onLiveMeasure(null);
       return;
     }
     const committed = chainMeters(chain);
@@ -122,7 +182,7 @@ export default function Overlay(props: OverlayProps) {
       points: chain.length,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chain, cursor, mode, pointsPerMeter]);
+  }, [chain, cursor, chainMode, pointsPerMeter]);
 
   // ---------- drawing ----------
   useEffect(() => {
@@ -187,7 +247,7 @@ export default function Overlay(props: OverlayProps) {
       }
     };
 
-    // Quick Area region overlays (active session + accepted rooms)
+    // Quick Area region overlays (active session + accepted rooms, incl. red cutouts)
     for (const ov of props.areaOverlays) {
       ctx.drawImage(
         ov.source,
@@ -214,15 +274,18 @@ export default function Overlay(props: OverlayProps) {
         ctx.arc(sx(p), sy(p), selected ? 4 : 3, 0, Math.PI * 2);
         ctx.fill();
       }
-      // Label at the midpoint of the middle segment
       const mid = m.points[Math.floor(m.points.length / 2)];
       const prev = m.points[Math.floor(m.points.length / 2) - 1] ?? m.points[0];
-      const lx = (sx(mid) + sx(prev)) / 2;
-      const ly = (sy(mid) + sy(prev)) / 2;
-      drawLabel(lx, ly, formatLength(m.totalMeters, units), color, selected ? m.id : undefined);
+      drawLabel(
+        (sx(mid) + sx(prev)) / 2,
+        (sy(mid) + sy(prev)) / 2,
+        formatLength(m.totalMeters, units),
+        color,
+        selected ? m.id : undefined,
+      );
     }
 
-    // Set-scale picking marker
+    // Set-scale picking marker + rubber band
     if (pending && (mode === 'calibrate' || mode === 'axisCheck')) {
       drawMarker(pending, cScale);
       if (cursor) {
@@ -237,23 +300,32 @@ export default function Overlay(props: OverlayProps) {
       }
     }
 
-    // Active measurement chain
-    if (mode === 'measure' && chain.length > 0) {
+    // Active chain (measure or polygon cut-out)
+    if (chainMode && chain.length > 0) {
       ctx.strokeStyle = cActive;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       chain.forEach((p, i) => (i === 0 ? ctx.moveTo(sx(p), sy(p)) : ctx.lineTo(sx(p), sy(p))));
-      if (cursor) ctx.lineTo(sx(cursor), sy(cursor));
+      const live = snapped ?? cursor;
+      if (live) ctx.lineTo(sx(live), sy(live));
       ctx.stroke();
       for (const p of chain) drawMarker(p, cActive);
-      if (cursor && pointsPerMeter) {
-        const seg = pointDistance(chain[chain.length - 1], cursor) / pointsPerMeter;
+      if (mode === 'measure' && live && pointsPerMeter) {
+        const seg = pointDistance(chain[chain.length - 1], live) / pointsPerMeter;
         const total = chainMeters(chain) + seg;
-        const text =
-          chain.length >= 1
-            ? `${formatLength(seg, units)}  ·  total ${formatLength(total, units)}`
-            : formatLength(seg, units);
-        drawLabel(sx(cursor), sy(cursor), text, cActive);
+        drawLabel(sx(live), sy(live), `${formatLength(seg, units)}  ·  total ${formatLength(total, units)}`, cActive);
+      }
+      // Snap indicator ring
+      if (snapped) {
+        ctx.strokeStyle = cActive;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sx(snapped), sy(snapped), 9, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(sx(snapped), sy(snapped), 3, 0, Math.PI * 2);
+        ctx.fillStyle = cActive;
+        ctx.fill();
       }
     }
   });
@@ -270,7 +342,7 @@ export default function Overlay(props: OverlayProps) {
   };
 
   const hitTest = (p: PagePoint): string | null => {
-    const tol = 7 / view.zoom; // 7 screen px
+    const tol = 7 / view.zoom;
     let best: string | null = null;
     let bestD = tol;
     for (const m of props.measurements) {
@@ -296,14 +368,21 @@ export default function Overlay(props: OverlayProps) {
     (e.target as Element).setPointerCapture(e.pointerId);
     const pos = localPos(e);
     downRef.current = pos;
-    draggingRef.current = false;
-    if (e.button === 1 || spaceDown || mode === 'pan') {
+    if (e.button === 1 || spaceDown) {
+      // middle mouse / spacebar: immediate pan (extras — left-drag pans too)
       panRef.current = pos;
     }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     const pos = localPos(e);
+    const down = downRef.current;
+    // Left-drag becomes a pan once it moves past the click slop — any mode.
+    if (!panRef.current && down && (e.buttons & 1) !== 0) {
+      if (Math.hypot(pos.x - down.x, pos.y - down.y) > CLICK_SLOP) {
+        panRef.current = { x: down.x, y: down.y };
+      }
+    }
     if (panRef.current) {
       const dx = pos.x - panRef.current.x;
       const dy = pos.y - panRef.current.y;
@@ -311,11 +390,10 @@ export default function Overlay(props: OverlayProps) {
       props.onPanBy(dx, dy);
       return;
     }
-    if (downRef.current && Math.hypot(pos.x - downRef.current.x, pos.y - downRef.current.y) > CLICK_SLOP) {
-      draggingRef.current = true;
-    }
     if (mode === 'measure' || mode === 'calibrate' || mode === 'axisCheck' || mode === 'quickArea') {
-      setCursor(toPage(pos.x, pos.y));
+      const p = toPage(pos.x, pos.y);
+      setCursor(p);
+      setSnapped(snapTo(p));
     }
   };
 
@@ -326,21 +404,10 @@ export default function Overlay(props: OverlayProps) {
     const down = downRef.current;
     downRef.current = null;
     if (wasPanning || e.button !== 0 || !down) return;
-    const moved = Math.hypot(pos.x - down.x, pos.y - down.y) > CLICK_SLOP;
+    // Released within slop = a click (tool action).
     const p = toPage(pos.x, pos.y);
 
     if (mode === 'calibrate' || mode === 'axisCheck') {
-      if (moved) {
-        // Click-drag: treat press and release as the two points.
-        if (!pending) {
-          props.onTwoPoints(mode, toPage(down.x, down.y), p);
-        } else {
-          const p1 = pending;
-          setPending(null);
-          props.onTwoPoints(mode, p1, p);
-        }
-        return;
-      }
       if (!pending) {
         setPending(p);
         props.onFirstPointPlaced();
@@ -354,40 +421,27 @@ export default function Overlay(props: OverlayProps) {
     }
 
     if (mode === 'quickArea') {
-      if (!moved) props.onQuickAreaClick(p);
+      if (props.qaDrawing) {
+        const sp = snapTo(p);
+        setChain([...chain, sp ?? p]);
+      } else {
+        props.onQuickAreaClick(p);
+      }
       return;
     }
 
     if (mode === 'measure' && pointsPerMeter) {
-      // Delete affordance on a selected measurement's label
       const del = deleteBoxRef.current;
       if (del && pos.x >= del.x && pos.x <= del.x + del.w && pos.y >= del.y && pos.y <= del.y + del.h) {
         props.onDeleteMeasurement(del.id);
         return;
       }
-      if (chain.length === 0) {
-        if (moved) {
-          // Quick one-segment drag (old habit).
-          props.onFinishMeasurement([toPage(down.x, down.y), p]);
-          return;
-        }
-        // Clicking an existing measurement selects it instead of chaining.
-        const hit = hitTest(p);
-        if (hit) {
-          props.onSelect(hit);
-          return;
-        }
-        props.onSelect(null);
-        setChain([p]);
-        return;
-      }
-      // Chaining: click adds a point (drags mid-chain are ignored).
-      if (!moved) setChain([...chain, p]);
+      const sp = snapTo(p);
+      setChain([...chain, sp ?? p]);
       return;
     }
 
     if (mode === 'pan') {
-      if (moved) return;
       const del = deleteBoxRef.current;
       if (del && pos.x >= del.x && pos.x <= del.x + del.w && pos.y >= del.y && pos.y <= del.y + del.h) {
         props.onDeleteMeasurement(del.id);
@@ -398,7 +452,7 @@ export default function Overlay(props: OverlayProps) {
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
-    if (mode === 'measure' && chain.length >= 2) {
+    if (chainMode && chain.length >= 2) {
       e.preventDefault();
       finishChain(chain);
     }
@@ -406,18 +460,12 @@ export default function Overlay(props: OverlayProps) {
 
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (mode === 'measure' && chain.length > 0) {
-      // Right-click undoes the last point; Esc cancels the whole chain.
-      const next = chain.slice(0, -1);
-      setChain(next);
-      if (next.length === 0) props.onLiveMeasure(null);
-      return;
-    }
+    // Right-click is never required; treat it as a plain cancel.
     setPending(null);
     props.onCancelIntent();
   };
 
-  const cursor_ =
+  const cursorStyle =
     spaceDown || mode === 'pan'
       ? 'grab'
       : mode === 'calibrate' || mode === 'axisCheck' || mode === 'measure' || mode === 'quickArea'
@@ -428,7 +476,7 @@ export default function Overlay(props: OverlayProps) {
     <canvas
       ref={canvasRef}
       className="overlay-canvas"
-      style={{ width: size.w, height: size.h, cursor: cursor_ }}
+      style={{ width: size.w, height: size.h, cursor: cursorStyle }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

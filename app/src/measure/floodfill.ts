@@ -215,23 +215,36 @@ export function holeIsInterior(
 }
 
 /**
- * Rough perimeter edges of the fill with cutouts applied. An edge counts
- * when a filled pixel borders open empty space, or a barrier line — unless
- * that barrier is part of a cut obstacle's outline (within 8px of the
- * hole), which stops counting toward wall length.
+ * Rough perimeter edges of the fill. An edge counts when a filled pixel
+ * borders:
+ *   - open empty space, or
+ *   - a "big" barrier component (walls), or
+ *   - the raster edge.
+ * Small barrier components (room labels, PT codes, symbols — text punches
+ * holes in the fill) contribute ZERO. Barrier edges near a user cutout hole
+ * stop counting (that's the point of cutting an obstacle), and manual
+ * polygon cutout regions never count (island outlines aren't walls).
  */
-export function perimeterEdgesWithCutouts(
-  fill: Uint8Array,
-  w: number,
-  h: number,
-  barrier: Uint8Array,
-  holes: Uint8Array[],
-): number {
-  let skip: Uint8Array | null = null;
+export function perimeterEdges(opts: {
+  fill: Uint8Array;
+  w: number;
+  h: number;
+  barrier: Uint8Array;
+  bigBarrier: Uint8Array;
+  holes?: Uint8Array[];
+  polys?: Uint8Array[];
+}): number {
+  const { fill, w, h, barrier, bigBarrier, holes = [], polys = [] } = opts;
+  let holeSkip: Uint8Array | null = null;
   if (holes.length > 0) {
-    const union = new Uint8Array(w * h);
-    for (const c of holes) for (let i = 0; i < union.length; i++) if (c[i]) union[i] = 1;
-    skip = dilateMask(union, w, h, 8);
+    holeSkip = new Uint8Array(w * h);
+    for (const c of holes) for (let i = 0; i < holeSkip.length; i++) if (c[i]) holeSkip[i] = 1;
+    holeSkip = dilateMask(holeSkip, w, h, 8); // cover the hole's outline stroke
+  }
+  let polyUnion: Uint8Array | null = null;
+  if (polys.length > 0) {
+    polyUnion = new Uint8Array(w * h);
+    for (const c of polys) for (let i = 0; i < polyUnion.length; i++) if (c[i]) polyUnion[i] = 1;
   }
   let edges = 0;
   for (let y = 0; y < h; y++) {
@@ -251,15 +264,89 @@ export function perimeterEdgesWithCutouts(
           continue;
         }
         if (fill[j]) continue;
+        if (polyUnion && polyUnion[j]) continue;
+        if (holeSkip && holeSkip[j]) continue;
         if (barrier[j]) {
-          if (!(skip && skip[j])) edges++;
-        } else if (!(skip && skip[j])) {
+          if (bigBarrier[j]) edges++;
+        } else {
           edges++;
         }
       }
     }
   }
   return edges;
+}
+
+/**
+ * Connected-component labeling of a barrier map; returns a mask of the
+ * "big" components (walls), dilated by 2px to cover the gap-bridging skirt
+ * the fill was computed with. IMPORTANT: pass the RAW barrier map
+ * (barrierMap(img, 0)) — on the dilated map, dense text merges into blobs
+ * big enough to look like walls. Text, symbols and hatch fragments are
+ * small raw components and get filtered out.
+ */
+export function bigBarrierMask(
+  barrier: Uint8Array,
+  w: number,
+  h: number,
+  minSize = 60,
+): Uint8Array {
+  const n = w * h;
+  const labels = new Int32Array(n).fill(-1);
+  const sizes: number[] = [];
+  const stack: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!barrier[i] || labels[i] !== -1) continue;
+    const label = sizes.length;
+    let size = 0;
+    stack.push(i);
+    labels[i] = label;
+    while (stack.length) {
+      const j = stack.pop()!;
+      size++;
+      const x = j % w;
+      if (x > 0 && barrier[j - 1] && labels[j - 1] === -1) { labels[j - 1] = label; stack.push(j - 1); }
+      if (x < w - 1 && barrier[j + 1] && labels[j + 1] === -1) { labels[j + 1] = label; stack.push(j + 1); }
+      if (j >= w && barrier[j - w] && labels[j - w] === -1) { labels[j - w] = label; stack.push(j - w); }
+      if (j < n - w && barrier[j + w] && labels[j + w] === -1) { labels[j + w] = label; stack.push(j + w); }
+    }
+    sizes.push(size);
+  }
+  const big = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (labels[i] !== -1 && sizes[labels[i]] >= minSize) big[i] = 1;
+  }
+  return dilateMask(big, w, h, 2);
+}
+
+/** Rasterize a page-space polygon into a working-buffer mask (even-odd). */
+export function polygonToMask(
+  points: { x: number; y: number }[],
+  w: number,
+  h: number,
+  pointsPerPixel: number,
+): Uint8Array {
+  const px = points.map((p) => ({ x: p.x / pointsPerPixel, y: p.y / pointsPerPixel }));
+  const mask = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const yc = y + 0.5;
+    const xs: number[] = [];
+    for (let i = 0; i < px.length; i++) {
+      const a = px[i];
+      const b = px[(i + 1) % px.length];
+      if (a.y === b.y) continue;
+      if (yc >= Math.min(a.y, b.y) && yc < Math.max(a.y, b.y)) {
+        xs.push(a.x + ((yc - a.y) / (b.y - a.y)) * (b.x - a.x));
+      }
+    }
+    xs.sort((p, q) => p - q);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const x0 = Math.max(0, Math.round(xs[k]));
+      const x1 = Math.min(w - 1, Math.round(xs[k + 1]));
+      for (let x = x0; x <= x1; x++) mask[y * w + x] = 1;
+    }
+  }
+  return mask;
 }
 
 /** Composite mask: base minus all cutouts. */

@@ -139,23 +139,29 @@ default with a dark toggle; a "?" button lists the shortcuts.
 ### Measurements (lengths + rough areas)
 - **Measure** mode (`M`): chain measuring — click to start, each click adds
   a segment (live segment + running total in the guidance bar), double-click
-  or **Enter** finishes, right-click undoes the last point, Esc cancels. A
-  click-drag still makes a quick one-segment measurement. Finished
-  measurements stay drawn on the page (line + endpoints + length label) and
-  persist per page in `pt:v1:measure:*`. Click one to select it; **Delete**
-  or the panel trash removes it.
+  or **Enter** finishes, **Ctrl+Z** undoes the last point (or, when not
+  drawing, removes the most recent measurement on the page), Esc cancels.
+  **Left-drag always pans the plan, in every mode.** Points **snap** to
+  existing measurement endpoints/vertices within ~10px (ring indicator), so
+  walls connect without gaps; closing a loop snaps to the chain's start.
+  Finished measurements stay drawn on the page and persist per page
+  (`pt:v1:measure:*`). Click one in Move Around mode (or in the panel) to
+  select it; **Delete** removes it.
 - **Measurements panel** (toolbar toggle with count badge): the current
-  page's measurements — rename on click, delete per row, separate bold
-  totals for length and for areas (units never mixed). Open/closed state
-  persists (`pt:v1:panel-open`).
+  page's measurements with rename-on-click and per-row delete. Every row
+  has an editable **ceiling height** (default at the top of the panel,
+  persisted as `pt:v1:default-height-m`) and shows **wall area =
+  length × height**. Totals: length, floor area, and **total wall area**
+  (the quoting number) — units never mixed.
 - **Quick Area** mode (`A`): click inside a room — a flood fill on a
-  downscaled raster of the page (dark pixels = walls, 2px gap bridging for
-  door swings) estimates floor area and a rough perimeter in well under a
-  second. The result card shows rough wall area (perimeter × editable
-  ceiling height); every number is editable; **Cut out an obstacle**
-  removes an enclosed island/fixture's outline from the rough wall length.
-  "Keep this room" saves it as a persistent area measurement (with its
-  tint overlay). Always labeled "rough" — it is flood fill, not AI.
+  downscaled raster of the page estimates floor area and a rough perimeter.
+  Perimeter counts **outer walls only**: barrier components are classified
+  on the raw (undilated) raster so room labels, PT codes and symbols punch
+  no fake edges into it. **Cut out an obstacle** clicks inside an enclosed
+  island/fixture; **Draw a cut-out** traces a polygon by hand — both show
+  in **red** and persist with the saved room. The result card gives rough
+  wall area (perimeter × editable ceiling height); every number editable.
+  Always labeled "rough" — it is flood fill, not AI.
 
 ## Keyboard shortcuts
 
@@ -165,10 +171,10 @@ default with a dark toggle; a "?" button lists the shortcuts.
 | `←` / `→` | Previous / next page |
 | `+` / `-` | Zoom in / out |
 | `Enter` or double-click | Finish a measurement chain |
+| `Ctrl` + `Z` | Undo last point · remove latest measurement |
 | `Delete` | Remove the selected measurement |
-| `Space` (hold) | Pan with drag in any mode |
+| `Space` (hold) | Pan with drag (extra — left-drag always pans) |
 | `Esc` | Cancel whatever is in progress |
-| Right-click | Undo last point (measuring) / cancel (picking) |
 | `Ctrl` + wheel | Zoom centered on cursor |
 
 ## Manual testing with `../sample-plans/`

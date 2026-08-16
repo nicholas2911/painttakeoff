@@ -1179,3 +1179,64 @@ body {
     animation: none;
   }
 }
+
+/* ---------- v0.3: panel heights, QA cut-out buttons ---------- */
+.mp-default-height {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.mp-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mp-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-height {
+  width: 62px;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-height:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mp-total-row.grand {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.mp-total-row.grand strong {
+  color: var(--ok);
+  font-size: 16px;
+}
+
+.qa-cutout-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

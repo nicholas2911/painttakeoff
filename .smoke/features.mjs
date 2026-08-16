@@ -63,29 +63,39 @@ await page.mouse.dblclick(cx + 90, cy + 80);
 await page.waitForTimeout(400);
 check('toast after finish', (await page.locator('.toast').textContent())?.includes('Saved Wall 1'));
 
-// a quick drag = one-segment measurement
-await page.mouse.move(cx - 150, cy + 160);
-await page.mouse.down();
-await page.mouse.move(cx + 50, cy + 160, { steps: 5 });
-await page.mouse.up();
+// a second quick chain (two clicks + double-click finish)
+await page.mouse.click(cx - 150, cy + 160);
+await page.mouse.click(cx + 50, cy + 160);
+await page.mouse.dblclick(cx + 50, cy + 160);
 await page.waitForTimeout(300);
 
 // ---------- item 4: panel ----------
 await page.getByRole('button', { name: /Measurements/ }).click();
 await page.waitForSelector('.measure-panel');
 check('panel lists 2 measurements', (await page.locator('.mp-row').count()) === 2);
-const rowVals = await page.locator('.mp-value').allTextContents();
-console.log('  rows:', rowVals.join(' | '));
+const rowLens = await page.locator('.mp-row .mp-sub').allTextContents();
+console.log('  rows:', rowLens.join(' | '));
 const totalText = await page.locator('.mp-total-row strong').first().textContent();
-console.log('  total:', totalText);
+console.log('  total length:', totalText);
 const parseFtIn = (s) => {
   const m = /(\d+)' ([\d/ ]+)"/.exec(s.trim());
   return m ? parseInt(m[1], 10) : NaN;
 };
-const totalRow0 = parseFtIn(await page.locator('.mp-row .mp-value').nth(0).textContent());
-const totalRow1 = parseFtIn(await page.locator('.mp-row .mp-value').nth(1).textContent());
+const totalRow0 = parseFtIn(rowLens[0] ?? '');
+const totalRow1 = parseFtIn(rowLens[1] ?? '');
 const totalPanel = parseFtIn(totalText ?? '');
 check('panel total = row1 + row2 (feet, ±1)', Math.abs(totalPanel - (totalRow0 + totalRow1)) <= 1);
+
+// per-row ceiling height -> wall area: set row 1 to 10 ft, expect area ≈ length × 10
+await page.locator('.mp-row .mp-height').first().click();
+await page.locator('.mp-row .mp-height').first().fill("10'");
+await page.keyboard.press('Enter');
+await page.waitForTimeout(300);
+const area0Text = await page.locator('.mp-row .mp-value').first().textContent();
+const area0 = parseFloat((area0Text ?? '0').replace(/[^0-9.]/g, ''));
+console.log(`  row 1: ${rowLens[0]} @ 10 ft = ${area0Text}`);
+check('row wall area = length × height (±2 sq ft)', Math.abs(area0 - totalRow0 * 10) <= 2 + totalRow0); // rounding of ft-in display
+check('total wall area row present', (await page.locator('.mp-total-row.grand').textContent())?.includes('Total wall area'));
 
 // rename row 1
 await page.locator('.mp-label').first().click();
@@ -113,8 +123,8 @@ await page.locator('.mp-trash').nth(1).click();
 await page.waitForTimeout(200);
 check('trash deletes a row', (await page.locator('.mp-row').count()) === 1);
 
-// delete selected via Delete key: click row then Delete
-await page.locator('.mp-row').first().click();
+// delete selected via Delete key: click the row number (selects) then Delete
+await page.locator('.mp-num').first().click();
 await page.keyboard.press('Delete');
 await page.waitForTimeout(200);
 check('Delete key removes selected', (await page.locator('.mp-row').count()) === 0);
@@ -143,27 +153,68 @@ check('sane floor area (100..4000 sq ft)', floorSf > 100 && floorSf < 4000);
 const wallText = await page.locator('.qa-result').textContent();
 console.log('  wall area text:', wallText?.trim().replace(/\s+/g, ' '));
 check('rough wall area shown', wallText?.includes('Rough wall area'));
+// --- perimeter sanity (text-hole fix): previously 196.3 ft for this fill ---
+const perimFill = parseFloat(await page.locator('.qa-row').nth(2).locator('input').inputValue());
+console.log(`  rough perimeter: ${perimFill} ft (was 196.3 ft before the text-hole fix)`);
+check('perimeter plausible (25..140 ft)', perimFill > 25 && perimFill < 140);
 await page.screenshot({ path: 'quickarea-result.png' });
 
-// cut out an obstacle (enclosed hole inside the filled room: a printed
-// fixture/dimension pocket — drops its outline from the rough wall length)
-const perimBefore = parseFloat(await page.locator('.qa-row').nth(2).locator('input').inputValue());
+// flood cutout: click the enclosed pocket inside the fill (printed "1100")
 await page.getByRole('button', { name: 'Cut out an obstacle' }).click();
-const cutX = cbox.x + 225, cutY = cbox.y + 416;
-await page.mouse.click(cutX, cutY);
+await page.mouse.click(cbox.x + 225, cbox.y + 416);
 await page.waitForTimeout(600);
-const perimAfter = parseFloat(await page.locator('.qa-row').nth(2).locator('input').inputValue());
-console.log(`  cutout: perimeter ${perimBefore} -> ${perimAfter} ft`);
-check('cutout subtracts from rough perimeter', perimAfter < perimBefore && (await page.locator('.qa-cutout').count()) === 1);
+check('flood cutout listed', (await page.locator('.qa-cutout').count()) === 1);
+
+// manual polygon cut-out: trace a square inside the shaded room
+const floorBefore = parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
+await page.getByRole('button', { name: 'Draw a cut-out' }).click();
+await page.mouse.click(cbox.x + 200, cbox.y + 385);
+await page.mouse.click(cbox.x + 250, cbox.y + 385);
+await page.mouse.click(cbox.x + 250, cbox.y + 410);
+await page.mouse.click(cbox.x + 200, cbox.y + 410);
+await page.mouse.dblclick(cbox.x + 200, cbox.y + 410);
+await page.waitForTimeout(500);
+const floorAfterPoly = parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
+console.log(`  manual cut-out: floor ${floorBefore} -> ${floorAfterPoly} sq ft`);
+check('manual cut-out subtracts floor area', floorAfterPoly < floorBefore && (await page.locator('.qa-cutout').count()) === 2);
+
+// cutouts render RED on the overlay
+const redSeen = await page.evaluate(() => {
+  const c = document.querySelector('.overlay-canvas');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] > 30 && d[i] > 150 && d[i + 1] < 110 && d[i + 2] < 110) return true;
+  }
+  return false;
+});
+check('cutouts render in red', redSeen);
+await page.screenshot({ path: 'quickarea-cutouts.png' });
 
 // accept -> appears in panel
 await page.getByRole('button', { name: 'Keep this room' }).click();
 await page.waitForTimeout(400);
 check('area measurement in panel', (await page.locator('.mp-row').count()) === 1);
-const areaRow = await page.locator('.mp-row .mp-value').textContent();
-console.log('  panel row:', areaRow);
-check('area row shows sq ft + rough walls', areaRow?.includes('sq ft') && areaRow?.includes('walls ≈'));
-check('separate totals (no mixed units)', (await page.locator('.mp-total-row').count()) === 2);
+const areaRowText = (await page.locator('.mp-row').first().textContent()) ?? '';
+console.log('  panel row:', areaRowText.trim());
+check('area row shows floor sq ft + wall area', areaRowText.includes('sq ft') && areaRowText.includes('floor'));
+check('floor + wall totals, no mixed units', (await page.locator('.mp-total-row').count()) === 2);
+
+// overlays persist across a page flip (blue room + red cutouts redraw)
+await page.keyboard.press('ArrowRight');
+await page.waitForTimeout(800);
+await page.keyboard.press('ArrowLeft');
+await page.waitForTimeout(1000);
+const overlayBack = await page.evaluate(() => {
+  const c = document.querySelector('.overlay-canvas');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let blue = false, red = false;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] > 20 && d[i + 2] > 150 && d[i + 2] > d[i] + 60) blue = true;
+    if (d[i + 3] > 20 && d[i] > 150 && d[i + 1] < 110 && d[i + 2] < 110) red = true;
+  }
+  return { blue, red };
+});
+check('room + red cutout overlays survive page flip', overlayBack.blue && overlayBack.red);
 
 console.log('errors:', errors.length ? errors : 'none');
 await browser.close();

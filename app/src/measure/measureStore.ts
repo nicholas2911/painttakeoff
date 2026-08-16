@@ -13,11 +13,16 @@ export interface LengthMeasurement {
   /** Chain of clicked points in page space (2+ points). */
   points: PagePoint[];
   totalMeters: number;
+  /** Ceiling height for this wall run (m). Absent in pre-0.3 data — the
+   *  panel's default height is used then. */
+  wallHeightM?: number;
   createdAt: number;
 }
 
 export interface AreaCutout {
   areaM2: number;
+  /** 'flood' (clicked an enclosed obstacle) or 'poly' (hand-drawn). */
+  kind?: 'flood' | 'poly';
 }
 
 export interface AreaMeasurement {
@@ -32,6 +37,8 @@ export interface AreaMeasurement {
   /** Tinted overlay of the filled region, and its page-space bounds. */
   maskDataUrl?: string;
   maskRect?: { qx: number; qy: number; qw: number; qh: number };
+  /** Red overlay for the cut-out regions (same bounds as maskRect). */
+  cutoutsDataUrl?: string;
   createdAt: number;
 }
 
@@ -41,6 +48,26 @@ export type MeasurementMap = Record<number, Measurement[]>;
 
 const PREFIX = 'pt:v1:measure:';
 const PANEL_KEY = 'pt:v1:panel-open';
+const DEFAULT_HEIGHT_KEY = 'pt:v1:default-height-m';
+/** Fallback default ceiling height: 8 ft. */
+export const FALLBACK_WALL_HEIGHT_M = 8 * 0.3048;
+
+export function loadDefaultWallHeight(): number {
+  try {
+    const v = parseFloat(localStorage.getItem(DEFAULT_HEIGHT_KEY) ?? '');
+    return Number.isFinite(v) && v > 0 ? v : FALLBACK_WALL_HEIGHT_M;
+  } catch {
+    return FALLBACK_WALL_HEIGHT_M;
+  }
+}
+
+export function saveDefaultWallHeight(meters: number): void {
+  try {
+    localStorage.setItem(DEFAULT_HEIGHT_KEY, String(meters));
+  } catch {
+    /* non-fatal */
+  }
+}
 
 function storageKey(fingerprint: string, page: number): string {
   return `${PREFIX}${fingerprint}:${page}`;

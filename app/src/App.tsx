@@ -13,8 +13,10 @@ import { formatLength, pointDistance, type UnitSystem } from './measure/units';
 import {
   loadMeasurements,
   loadPanelOpen,
+  loadDefaultWallHeight,
   newId,
   saveMeasurements,
+  saveDefaultWallHeight,
   savePanelOpen,
   type AreaMeasurement,
   type Measurement,
@@ -23,12 +25,14 @@ import {
 import {
   applyCutouts,
   barrierMap,
+  bigBarrierMask,
   floodFill,
   holeFill,
   holeIsInterior,
   maskPixelCount,
   maskToCanvas,
-  perimeterEdgesWithCutouts,
+  perimeterEdges,
+  polygonToMask,
   type FillMask,
 } from './measure/floodfill';
 import type { PagePoint, ToolMode, UpdateState, ViewTransform } from './types';
@@ -38,7 +42,7 @@ import Viewer, { type ViewerHandle, type PageRaster } from './components/Viewer'
 import StepBar from './components/StepBar';
 import Welcome from './components/Welcome';
 import MeasurementsPanel, { formatArea } from './components/MeasurementsPanel';
-import QuickAreaCard, { defaultWallHeight, type QaValues } from './components/QuickAreaCard';
+import QuickAreaCard, { type QaValues } from './components/QuickAreaCard';
 import type { AreaOverlay, LiveMeasure } from './components/Overlay';
 import {
   AxisExpectedModal,
@@ -62,12 +66,20 @@ type Flow =
   | { step: 'axisExpected'; measuredMeters: number }
   | { step: 'axisWarning'; measuredMeters: number; expectedMeters: number };
 
+interface QaCutoutEntry {
+  kind: 'flood' | 'poly';
+  /** flood: the enclosed hole mask. poly: the hand-drawn region ∩ fill. */
+  mask: Uint8Array;
+  areaM2: number;
+}
+
 interface QaSession {
   raster: PageRaster;
   base: FillMask;
   barrier: Uint8Array;
-  cutouts: Uint8Array[];
-  sub: 'fill' | 'cutout';
+  bigBarrier: Uint8Array;
+  cutouts: QaCutoutEntry[];
+  sub: 'fill' | 'cutout' | 'draw';
 }
 
 function loadTheme(): Theme {
@@ -101,6 +113,8 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
   const [finishSignal, setFinishSignal] = useState(0);
+  const [chainUndoSignal, setChainUndoSignal] = useState(0);
+  const [defaultHeightM, setDefaultHeightM] = useState<number>(() => loadDefaultWallHeight());
   const [firstPointPlaced, setFirstPointPlaced] = useState(false);
   const [toolHint, setToolHint] = useState<'measure' | 'quickArea' | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -356,6 +370,29 @@ export default function App() {
     [measurements, pageNum, persistMeasurements],
   );
 
+  /** Ctrl+Z when not drawing: remove the most recently added measurement. */
+  const undoLastMeasurement = useCallback(() => {
+    const items = measurements[pageNum] ?? [];
+    if (items.length === 0) return;
+    const last = items[items.length - 1];
+    deleteMeasurement(last.id);
+    showToast(`Removed ${last.label}.`);
+  }, [measurements, pageNum, deleteMeasurement, showToast]);
+
+  const setMeasurementHeight = useCallback(
+    (id: string, meters: number) => {
+      const items = (measurements[pageNum] ?? []).map((m) =>
+        m.id === id
+          ? m.kind === 'area'
+            ? { ...m, wallHeightM: meters, wallAreaM2: m.perimeterM * meters }
+            : { ...m, wallHeightM: meters }
+          : m,
+      );
+      persistMeasurements(pageNum, items);
+    },
+    [measurements, pageNum, persistMeasurements],
+  );
+
   const renameMeasurement = useCallback(
     (id: string, label: string) => {
       const items = (measurements[pageNum] ?? []).map((m) => (m.id === id ? { ...m, label } : m));
@@ -371,21 +408,41 @@ export default function App() {
     setQaBusy(false);
   }, []);
 
+  /** Composite fill: base minus hand-drawn polygon cut-outs (flood holes
+   *  were never part of the fill). */
+  const qaComposite = useCallback(
+    (mask: FillMask, cutouts: QaCutoutEntry[]): FillMask => ({
+      ...mask,
+      data: applyCutouts(
+        mask,
+        cutouts.filter((c) => c.kind === 'poly').map((c) => c.mask),
+      ),
+    }),
+    [],
+  );
+
   const qaNumbers = useCallback(
-    (mask: FillMask, cutouts: Uint8Array[], barrier: Uint8Array) => {
+    (mask: FillMask, cutouts: QaCutoutEntry[], barrier: Uint8Array, bigBarrier: Uint8Array) => {
       if (!scale) return { floorAreaM2: 0, perimeterM: 0 };
       const mPerPx = mask.pointsPerPixel / scale.pointsPerMeter;
-      // Cutouts are holes the fill already went around, so the floor area
-      // comes from the fill itself; cutting an obstacle drops its outline
-      // from the rough perimeter (wall length).
+      const composite = qaComposite(mask, cutouts);
+      // Perimeter = outer walls only: big barrier components (walls) count,
+      // text/symbol speckle doesn't; cut-out outlines don't either.
+      const edges = perimeterEdges({
+        fill: composite.data,
+        w: mask.width,
+        h: mask.height,
+        barrier,
+        bigBarrier,
+        holes: cutouts.filter((c) => c.kind === 'flood').map((c) => c.mask),
+        polys: cutouts.filter((c) => c.kind === 'poly').map((c) => c.mask),
+      });
       return {
-        floorAreaM2: maskPixelCount(mask.data) * mPerPx * mPerPx,
-        perimeterM:
-          perimeterEdgesWithCutouts(mask.data, mask.width, mask.height, barrier, cutouts) *
-          mPerPx,
+        floorAreaM2: maskPixelCount(composite.data) * mPerPx * mPerPx,
+        perimeterM: edges * mPerPx,
       };
     },
-    [scale],
+    [scale, qaComposite],
   );
 
   const handleQuickAreaClick = useCallback(
@@ -408,22 +465,26 @@ export default function App() {
             return;
           }
           mask.pointsPerPixel = raster.pointsPerPixel;
+          const barrier = barrierMap(img, 2);
           const session: QaSession = {
             raster,
             base: mask,
-            barrier: barrierMap(img, 2),
+            barrier,
+            // Wall classification runs on the RAW barrier map so dense text
+            // doesn't merge into wall-sized blobs.
+            bigBarrier: bigBarrierMask(barrierMap(img, 0), mask.width, mask.height),
             cutouts: [],
             sub: qa?.sub === 'cutout' ? 'cutout' : 'fill',
           };
           setQa(session);
-          const nums = qaNumbers(mask, [], session.barrier);
+          const nums = qaNumbers(mask, [], session.barrier, session.bigBarrier);
           setQaValues((prev) => ({
             name: prev?.name ?? `Room ${pageMeasurements.filter((m) => m.kind === 'area').length + 1}`,
             floorAreaM2: nums.floorAreaM2,
             perimeterM: nums.perimeterM,
-            wallHeightM: prev?.wallHeightM ?? defaultWallHeight(units),
+            wallHeightM: prev?.wallHeightM ?? defaultHeightM,
           }));
-        } else {
+        } else if (qa.sub === 'cutout') {
           // Cut out: the target is a hole the fill went around (island,
           // cabinets, fixtures). Clicking open floor is a mistake — say so.
           const img = ctx.getImageData(0, 0, raster.canvas.width, raster.canvas.height);
@@ -443,21 +504,17 @@ export default function App() {
             showToast('That spot isn’t closed off — it leaks way outside the room.');
             return;
           }
-          if (
-            !holeIsInterior(
-              qa.base.data,
-              qa.barrier,
-              hole,
-              qa.base.width,
-              qa.base.height,
-            )
-          ) {
+          if (!holeIsInterior(qa.base.data, qa.barrier, hole, qa.base.width, qa.base.height)) {
             showToast('That closed-off spot is outside the measured room.');
             return;
           }
-          const cutouts = [...qa.cutouts, hole];
+          const mPerPx = qa.base.pointsPerPixel / scale.pointsPerMeter;
+          const cutouts: QaCutoutEntry[] = [
+            ...qa.cutouts,
+            { kind: 'flood', mask: hole, areaM2: holePx * mPerPx * mPerPx },
+          ];
           setQa({ ...qa, cutouts });
-          const nums = qaNumbers(qa.base, cutouts, qa.barrier);
+          const nums = qaNumbers(qa.base, cutouts, qa.barrier, qa.bigBarrier);
           setQaValues((v) => (v ? { ...v, ...nums } : v));
         }
       } finally {
@@ -467,18 +524,71 @@ export default function App() {
     [scale, plan, qa, qaNumbers, pageMeasurements, units, showToast],
   );
 
+  /** Hand-drawn polygon cut-out (Quick Area "Draw a cut-out"). */
+  const handleCutoutPolygon = useCallback(
+    (points: PagePoint[]) => {
+      if (!qa || !scale) return;
+      const mask = polygonToMask(
+        points,
+        qa.base.width,
+        qa.base.height,
+        qa.base.pointsPerPixel,
+      );
+      // Only the part inside the filled room counts.
+      const composite = qaComposite(qa.base, qa.cutouts);
+      const removed = new Uint8Array(mask.length);
+      let removedPx = 0;
+      for (let i = 0; i < mask.length; i++) {
+        if (mask[i] && composite.data[i]) {
+          removed[i] = 1;
+          removedPx++;
+        }
+      }
+      if (removedPx < 4) {
+        showToast('Draw the cut-out inside the shaded room area.');
+        return;
+      }
+      const mPerPx = qa.base.pointsPerPixel / scale.pointsPerMeter;
+      const cutouts: QaCutoutEntry[] = [
+        ...qa.cutouts,
+        { kind: 'poly', mask: removed, areaM2: removedPx * mPerPx * mPerPx },
+      ];
+      setQa({ ...qa, cutouts });
+      const nums = qaNumbers(qa.base, cutouts, qa.barrier, qa.bigBarrier);
+      setQaValues((v) => (v ? { ...v, ...nums } : v));
+      showToast('Cut-out added.');
+    },
+    [qa, scale, qaComposite, qaNumbers, showToast],
+  );
+
   const acceptQa = useCallback(() => {
     if (!qa || !qaValues || !scale || !plan) return;
-    const composite: FillMask = { ...qa.base, data: applyCutouts(qa.base, qa.cutouts) };
+    const composite = qaComposite(qa.base, qa.cutouts);
     const tint: [number, number, number, number] = [26, 102, 204, 70];
+    const redTint: [number, number, number, number] = [214, 48, 49, 110];
     const full = maskToCanvas(composite, tint);
+    const cutoutUnion = new Uint8Array(qa.base.data.length);
+    let hasCutouts = false;
+    for (const c of qa.cutouts) {
+      for (let i = 0; i < cutoutUnion.length; i++) {
+        if (c.mask[i]) {
+          cutoutUnion[i] = 1;
+          hasCutouts = true;
+        }
+      }
+    }
+    const cutCanvas = hasCutouts
+      ? maskToCanvas({ ...qa.base, data: cutoutUnion }, redTint)
+      : null;
     // Downscale for storage so localStorage stays small.
-    const scaleDown = Math.min(1, 480 / full.width);
-    const small = document.createElement('canvas');
-    small.width = Math.round(full.width * scaleDown);
-    small.height = Math.round(full.height * scaleDown);
-    small.getContext('2d')?.drawImage(full, 0, 0, small.width, small.height);
-    const mPerPx = qa.base.pointsPerPixel / scale.pointsPerMeter;
+    const shrink = (src: HTMLCanvasElement) => {
+      const scaleDown = Math.min(1, 480 / src.width);
+      const small = document.createElement('canvas');
+      small.width = Math.round(src.width * scaleDown);
+      small.height = Math.round(src.height * scaleDown);
+      small.getContext('2d')?.drawImage(src, 0, 0, small.width, small.height);
+      return small.toDataURL('image/png');
+    };
     const m: AreaMeasurement = {
       id: newId(),
       kind: 'area',
@@ -487,15 +597,16 @@ export default function App() {
       perimeterM: qaValues.perimeterM,
       wallHeightM: qaValues.wallHeightM,
       wallAreaM2: qaValues.perimeterM * qaValues.wallHeightM,
-      cutouts: qa.cutouts.map((c) => ({ areaM2: maskPixelCount(c) * mPerPx * mPerPx })),
-      maskDataUrl: small.toDataURL('image/png'),
+      cutouts: qa.cutouts.map((c) => ({ areaM2: c.areaM2, kind: c.kind })),
+      maskDataUrl: shrink(full),
+      cutoutsDataUrl: cutCanvas ? shrink(cutCanvas) : undefined,
       maskRect: { qx: 0, qy: 0, qw: qa.raster.pageW, qh: qa.raster.pageH },
       createdAt: Date.now(),
     };
     persistMeasurements(pageNum, [...(measurements[pageNum] ?? []), m]);
     showToast(`Saved ${m.label}: ${formatArea(m.floorAreaM2, units)}, walls ≈ ${formatArea(m.wallAreaM2, units)}.`);
     cancelQa();
-  }, [qa, qaValues, scale, plan, pageNum, measurements, persistMeasurements, units, showToast, cancelQa]);
+  }, [qa, qaValues, scale, plan, pageNum, measurements, persistMeasurements, units, showToast, cancelQa, qaComposite]);
 
   // ---------- navigation & modes ----------
   const gotoPage = useCallback(
@@ -550,6 +661,14 @@ export default function App() {
         return;
       }
       if (isTyping()) return;
+      // Ctrl+Z: while drawing, undo the last point; otherwise remove the
+      // most recent measurement on this page.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (liveMeasure && liveMeasure.points > 0) setChainUndoSignal((n) => n + 1);
+        else undoLastMeasurement();
+        return;
+      }
       switch (e.key) {
         case 'ArrowLeft':
           gotoPage(pageNum - 1);
@@ -606,7 +725,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [pageNum, plan, scale, flow.step, mode, selectedId, gotoPage, changeMode, resetInteraction, deleteMeasurement]);
+  }, [pageNum, plan, scale, flow.step, mode, selectedId, liveMeasure, gotoPage, changeMode, resetInteraction, deleteMeasurement, undoLastMeasurement]);
 
   // ---------- overlay images for Quick Area ----------
   const getImage = useCallback((url: string): HTMLImageElement => {
@@ -624,20 +743,34 @@ export default function App() {
     for (const m of pageMeasurements) {
       if (m.kind === 'area' && m.maskDataUrl && m.maskRect) {
         list.push({ id: m.id, rect: m.maskRect, source: getImage(m.maskDataUrl) });
+        if (m.cutoutsDataUrl) {
+          list.push({ id: `${m.id}-cutouts`, rect: m.maskRect, source: getImage(m.cutoutsDataUrl) });
+        }
       }
     }
     if (qa) {
-      const composite: FillMask = { ...qa.base, data: applyCutouts(qa.base, qa.cutouts) };
+      const composite = qaComposite(qa.base, qa.cutouts);
       const tint: [number, number, number, number] =
         theme === 'dark' ? [80, 150, 240, 90] : [26, 102, 204, 70];
+      const red: [number, number, number, number] =
+        theme === 'dark' ? [240, 100, 90, 120] : [214, 48, 49, 110];
       list.push({
         id: 'qa-active',
         rect: { qx: 0, qy: 0, qw: qa.raster.pageW, qh: qa.raster.pageH },
         source: maskToCanvas(composite, tint),
       });
+      if (qa.cutouts.length > 0) {
+        const union = new Uint8Array(qa.base.data.length);
+        for (const c of qa.cutouts) for (let i = 0; i < union.length; i++) if (c.mask[i]) union[i] = 1;
+        list.push({
+          id: 'qa-cutouts',
+          rect: { qx: 0, qy: 0, qw: qa.raster.pageW, qh: qa.raster.pageH },
+          source: maskToCanvas({ ...qa.base, data: union }, red),
+        });
+      }
     }
     return list;
-  }, [pageMeasurements, qa, theme, getImage]);
+  }, [pageMeasurements, qa, theme, getImage, qaComposite]);
 
   // ---------- the guidance bar ----------
   let stepBar = null;
@@ -646,16 +779,16 @@ export default function App() {
       stepBar = (
         <StepBar kind="action" title={firstPointPlaced ? 'Setting the scale — click 2 of 2' : 'Setting the scale — click 1 of 2'}>
           {firstPointPlaced
-            ? 'Now click the other end. Right-click or Esc to start over.'
-            : 'Click one end of something whose length you know — a wall with its length written on it is perfect. Right-click or Esc to cancel.'}
+            ? 'Now click the other end. Drag moves the plan; Esc starts over.'
+            : 'Click one end of something whose length you know — a wall with its length written on it is perfect. Drag moves the plan; Esc cancels.'}
         </StepBar>
       );
     } else if (mode === 'axisCheck') {
       stepBar = (
         <StepBar kind="action" title={firstPointPlaced ? 'Double-check — click 2 of 2' : 'Double-check — click 1 of 2'}>
           {firstPointPlaced
-            ? 'Now click the other end. Right-click or Esc to start over.'
-            : 'Click one end of something else whose length you know — pointing the other way if you can. Right-click or Esc to cancel.'}
+            ? 'Now click the other end. Drag moves the plan; Esc starts over.'
+            : 'Click one end of something else whose length you know — pointing the other way if you can. Drag moves the plan; Esc cancels.'}
         </StepBar>
       );
     } else if (mode === 'measure') {
@@ -663,20 +796,23 @@ export default function App() {
         <StepBar kind="info" title="Measuring">
           This segment <strong>{liveMeasure.segmentMeters !== null ? formatLength(liveMeasure.segmentMeters, units) : '—'}</strong>
           {' · '}total so far <strong>{formatLength(liveMeasure.totalMeters, units)}</strong>.
-          Click to add a point, double-click or Enter to finish, right-click undoes a point, Esc cancels.
+          Click to add a point (it snaps to other lines), double-click to finish, Ctrl+Z undoes a
+          point, Esc cancels.
         </StepBar>
       ) : (
         <StepBar kind="info" title="Measuring">
-          Click to start a line, keep clicking to add segments, double-click or Enter to finish.
-          Or just click-drag for a quick single line.
+          Click to start a line, keep clicking to add segments, double-click to finish. Drag always
+          moves the plan. Ctrl+Z undoes.
         </StepBar>
       );
     } else if (mode === 'quickArea') {
       stepBar = (
-        <StepBar kind="info" title={qa?.sub === 'cutout' ? 'Cutting out' : 'Quick Area'}>
+        <StepBar kind="info" title={qa?.sub === 'cutout' ? 'Cutting out' : qa?.sub === 'draw' ? 'Drawing a cut-out' : 'Quick Area'}>
           {qa?.sub === 'cutout'
-            ? 'Click inside an obstacle (island, cabinets, stairs) to subtract it. Right-click or Esc stops cutting out.'
-            : 'Click inside a room — I’ll fill it in and give you a rough size. Then tweak the numbers on the right.'}
+            ? 'Click inside an obstacle (island, cabinets, stairs) to subtract it. Esc stops cutting out.'
+            : qa?.sub === 'draw'
+              ? 'Click the corners of the obstacle, double-click to finish. Ctrl+Z undoes a point, Esc stops.'
+              : 'Click inside a room — I’ll fill it in and give you a rough size. Then tweak the numbers on the right.'}
         </StepBar>
       );
     } else if (!scale) {
@@ -770,19 +906,23 @@ export default function App() {
           measurements={pageMeasurements}
           selectedId={selectedId}
           areaOverlays={areaOverlays}
+          qaDrawing={qa?.sub === 'draw'}
           onTwoPoints={handleTwoPoints}
           onFirstPointPlaced={() => setFirstPointPlaced(true)}
           onCancelIntent={() => {
             resetInteraction();
             if (qa?.sub === 'cutout') setQa({ ...qa, sub: 'fill' });
+            if (qa?.sub === 'draw') setQa({ ...qa, sub: 'fill' });
           }}
           onFinishMeasurement={handleFinishMeasurement}
+          onFinishCutoutPolygon={handleCutoutPolygon}
           onLiveMeasure={setLiveMeasure}
           onSelect={setSelectedId}
           onDeleteMeasurement={deleteMeasurement}
           onQuickAreaClick={(p) => void handleQuickAreaClick(p)}
           resetSignal={resetSignal}
           finishSignal={finishSignal}
+          chainUndoSignal={chainUndoSignal}
         />
         {!plan && <Welcome onOpen={() => fileInputRef.current?.click()} />}
         {plan && panelOpen && (
@@ -790,8 +930,14 @@ export default function App() {
             items={pageMeasurements}
             units={units}
             selectedId={selectedId}
+            defaultHeightM={defaultHeightM}
+            onDefaultHeightChange={(m) => {
+              setDefaultHeightM(m);
+              saveDefaultWallHeight(m);
+            }}
             onSelect={setSelectedId}
             onRename={renameMeasurement}
+            onSetHeight={setMeasurementHeight}
             onDelete={deleteMeasurement}
             onClose={() => {
               savePanelOpen(false);
@@ -802,21 +948,22 @@ export default function App() {
         {plan && qa && qaValues && (
           <QuickAreaCard
             values={qaValues}
-            cutouts={qa.cutouts.map((c) => ({
-              areaM2:
-                scale && qa.base.pointsPerPixel
-                  ? maskPixelCount(c) * Math.pow(qa.base.pointsPerPixel / scale.pointsPerMeter, 2)
-                  : 0,
-            }))}
+            cutouts={qa.cutouts.map((c) => ({ areaM2: c.areaM2, kind: c.kind }))}
             units={units}
             cuttingOut={qa.sub === 'cutout'}
+            drawingCutout={qa.sub === 'draw'}
             busy={qaBusy}
             onChange={setQaValues}
-            onToggleCutout={() => setQa({ ...qa, sub: qa.sub === 'cutout' ? 'fill' : 'cutout' })}
+            onToggleCutout={() =>
+              setQa({ ...qa, sub: qa.sub === 'cutout' ? 'fill' : 'cutout' })
+            }
+            onToggleDrawCutout={() =>
+              setQa({ ...qa, sub: qa.sub === 'draw' ? 'fill' : 'draw' })
+            }
             onRemoveCutout={(i) => {
               const cutouts = qa.cutouts.filter((_, idx) => idx !== i);
               setQa({ ...qa, cutouts });
-              const nums = qaNumbers(qa.base, cutouts, qa.barrier);
+              const nums = qaNumbers(qa.base, cutouts, qa.barrier, qa.bigBarrier);
               setQaValues((v) => (v ? { ...v, ...nums } : v));
             }}
             onAccept={acceptQa}

@@ -12,6 +12,7 @@ export interface QaValues {
 
 export interface QaCutout {
   areaM2: number;
+  kind?: 'flood' | 'poly';
 }
 
 /**
@@ -23,9 +24,11 @@ export default function QuickAreaCard(props: {
   cutouts: QaCutout[];
   units: UnitSystem;
   cuttingOut: boolean;
+  drawingCutout: boolean;
   busy: boolean;
   onChange(v: QaValues): void;
   onToggleCutout(): void;
+  onToggleDrawCutout(): void;
   onRemoveCutout(index: number): void;
   onAccept(): void;
   onCancel(): void;
@@ -94,20 +97,33 @@ export default function QuickAreaCard(props: {
         <div className="qa-cutouts">
           {props.cutouts.map((c, i) => (
             <div className="qa-cutout" key={i}>
-              <span>Cutout {i + 1} ({formatArea(c.areaM2, units)} — out of the wall length)</span>
+              <span>
+                Cut-out {i + 1}
+                {c.kind === 'poly' ? ' (hand-drawn)' : ''} ({formatArea(c.areaM2, units)})
+              </span>
               <button onClick={() => props.onRemoveCutout(i)} title="Put it back">✕</button>
             </div>
           ))}
         </div>
       )}
 
-      <button
-        className={`tool ${props.cuttingOut ? 'active' : ''}`}
-        onClick={props.onToggleCutout}
-        disabled={props.busy}
-      >
-        {props.cuttingOut ? 'Click inside an obstacle…' : 'Cut out an obstacle'}
-      </button>
+      <div className="qa-cutout-buttons">
+        <button
+          className={`tool ${props.cuttingOut ? 'active' : ''}`}
+          onClick={props.onToggleCutout}
+          disabled={props.busy}
+        >
+          {props.cuttingOut ? 'Click inside an obstacle…' : 'Cut out an obstacle'}
+        </button>
+        <button
+          className={`tool ${props.drawingCutout ? 'active' : ''}`}
+          onClick={props.onToggleDrawCutout}
+          disabled={props.busy}
+          title="Trace around an obstacle yourself: click corners, double-click to finish"
+        >
+          {props.drawingCutout ? 'Drawing cut-out…' : 'Draw a cut-out'}
+        </button>
+      </div>
 
       <div className="modal-actions">
         <button className="tool" onClick={props.onCancel}>Cancel</button>

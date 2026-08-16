@@ -79,14 +79,13 @@ await page.waitForTimeout(300);
 check('badge: scale is set ✓', (await page.locator('.scale-badge').textContent())?.includes('Scale is set ✓'));
 check('step 3 banner', (await barText())?.includes('Step 3 of 3'));
 
-// --- 6. measure ---
+// --- 6. measure (click-click, double-click finishes) ---
 await page.getByRole('button', { name: 'Measure', exact: true }).click();
 check('measure instruction bar', (await barText())?.includes('Measuring'));
-await page.mouse.move(cx - 100, cy + 150);
-await page.mouse.down();
-await page.mouse.move(cx + 100, cy + 150, { steps: 5 });
-await page.mouse.up();
-await page.waitForTimeout(200);
+await page.mouse.click(cx - 100, cy + 150);
+await page.mouse.click(cx + 100, cy + 150);
+await page.mouse.dblclick(cx + 100, cy + 150);
+await page.waitForTimeout(300);
 const drawn = await page.evaluate(() => {
   const c = document.querySelector('.overlay-canvas');
   const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;

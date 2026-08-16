@@ -32,12 +32,10 @@ await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 
 const box = await page.locator('.viewer').boundingBox();
 const cx = box.x + 750, cy = box.y + 420;
 
-/** Complete the double-check by entering exactly the measured value. Uses drag. */
+/** Complete the double-check by entering exactly the measured value (click-click). */
 async function doubleCheckWithDrag() {
-  await page.mouse.move(cx - 100, cy);
-  await page.mouse.down();
-  await page.mouse.move(cx + 100, cy, { steps: 6 });
-  await page.mouse.up();
+  await page.mouse.click(cx - 100, cy);
+  await page.mouse.click(cx + 100, cy);
   await page.waitForSelector('.modal', { timeout: 8000 });
   const text = await page.locator('.modal-text').first().textContent();
   const m = /measures (\d+)' ([\d/ ]+)"/.exec(text ?? '');
@@ -53,7 +51,7 @@ await page.selectOption('.preset-select', '1:48');
 await page.waitForSelector('.modal');
 await page.getByRole('button', { name: 'Measure one more thing' }).click();
 await doubleCheckWithDrag();
-check('(c) drag double-check confirms scale', (await badge())?.includes('Scale is set ✓'));
+check('(c) click-click double-check confirms scale', (await badge())?.includes('Scale is set ✓'));
 
 // page 2 gets its own preset, skipped check
 await page.keyboard.press('ArrowRight');
