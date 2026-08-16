@@ -1,0 +1,40 @@
+PAINTTAKEOFF — TEST PACKAGE (v0.3.1)
+====================================
+
+What's in here:
+  1. PaintTakeoff-Setup-0.3.1.exe  ← the app installer (double-click it)
+  2. PaintTakeoff-Guide.pdf        ← 5-minute how-to guide
+
+INSTALLING (one time only):
+  Double-click the Setup file. Windows may show a blue
+  "Windows protected your PC" popup — click "More info" → "Run anyway".
+  It installs itself in about 30 seconds and puts a PaintTakeoff icon
+  on your desktop. From then on, open it from there.
+
+UPDATES COME TO YOU NOW — no more new files from us:
+  When we improve the app, a flashing "New update" button appears at
+  the top of the app. Click it → it downloads → click "Restart to
+  update". That's the whole thing. You never need to reinstall.
+
+WHAT TO TRY (about 10 minutes):
+  1. Open one of your own plan PDFs (drag it onto the window, or use
+     the Open Plan button).
+  2. Pick a floor plan page, click "Set Scale", click the two ends of a
+     wall whose length is written on the plan, type the number in.
+     (On a metric plan, the "Common scales…" dropdown has 1:75 / 1:50 /
+     1:100 etc., or just type the millimetres as printed. If the badge
+     stays amber, click it — it runs the double-check.)
+  3. Click "Measure" and measure a few walls: click to start, keep
+     clicking to add segments, double-click to finish. Check the numbers
+     against walls you know. Open "Measurements" to see the page total.
+  4. Click "Quick Area", then click inside a room — it fills the room and
+     gives a rough wall square footage (set the ceiling height). Tweak
+     the numbers, keep the room.
+
+WHAT WE WANT TO KNOW:
+  - Where did you get confused or stuck? (Exact moment, even small stuff.)
+  - Were the measurements right? Check against a wall you know.
+  - How long would this save/take you vs. how you do it now?
+  - Anything you'd expect it to do that it doesn't?
+
+Send feedback (and any plan files that act weird) back to Nicholas.

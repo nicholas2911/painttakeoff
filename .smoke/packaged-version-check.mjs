@@ -7,7 +7,7 @@ const page = await app.firstWindow();
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(e.message));
 await page.waitForSelector('.welcome-title', { timeout: 30000 });
-check('version label v0.5.0', (await page.locator('.tb-version').textContent())?.trim() === 'v0.5.0');
+check('version label v0.5.1', (await page.locator('.tb-version').textContent())?.trim() === 'v0.5.1');
 await page.locator('.tb-version').click();
 await page.waitForTimeout(60);
 const earlyToast = (await page.locator('.toast').textContent()) ?? '';

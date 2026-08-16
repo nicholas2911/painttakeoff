@@ -182,10 +182,15 @@ default with a dark toggle; a "?" button lists the shortcuts.
   row, Delete key for the selected row.
 - **Quick Area** mode (`A`): click inside a room — a flood fill on a
   downscaled raster of the page estimates floor area and a rough perimeter.
-  Perimeter counts **outer walls only**: barrier components are classified
-  on the raw (undilated) raster so room labels, PT codes and symbols punch
-  no fake edges into it. **Cut out an obstacle** clicks inside an enclosed
-  island/fixture; **Draw a cut-out** traces a polygon by hand — both show
+  The barrier map is **cleaned** first: connected-component analysis keeps
+  the wall network (plus elongated wall segments broken by overprinted
+  text) and removes letters, tags, fixture outlines, hatching, dashes and
+  dimension lines, so the fill covers the whole room instead of splitting
+  around interior content. Door openings are sealed with a scale-adaptive
+  dilation (escalates only if the result looks like a leak), and the floor
+  area comes from the fill with interior holes filled back in — text and
+  fixtures never reduce it. **Cut out an obstacle** clicks inside an
+  enclosed island; **Draw a cut-out** traces a polygon by hand — both show
   in **red** and persist with the saved room. The result card gives rough
   wall area (perimeter × editable ceiling height); every number editable.
   Always labeled "rough" — it is flood fill, not AI.

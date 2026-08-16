@@ -29,12 +29,12 @@ import {
   type OpeningType,
 } from './measure/measureStore';
 import {
-  applyCutouts,
   barrierMap,
   bigBarrierMask,
-  floodFill,
-  holeFill,
-  holeIsInterior,
+  cleanBarrierMap,
+  dilateMask,
+  floodFillFromBarrier,
+  interiorPockets,
   maskPixelCount,
   maskToCanvas,
   perimeterEdges,
@@ -544,34 +544,32 @@ export default function App() {
     setQaBusy(false);
   }, []);
 
-  /** Composite fill: base minus hand-drawn polygon cut-outs (flood holes
-   *  were never part of the fill). */
-  const qaComposite = useCallback(
-    (mask: FillMask, cutouts: QaCutoutEntry[]): FillMask => ({
-      ...mask,
-      data: applyCutouts(
-        mask,
-        cutouts.filter((c) => c.kind === 'poly').map((c) => c.mask),
-      ),
-    }),
-    [],
-  );
+  /** Display/area mask: the room's solid region (fill + interior holes +
+   *  their outlines, eroded back to the true wall face), minus cut-outs. */
+  const qaComposite = useCallback((sess: QaSession): FillMask => {
+    const n = sess.base.data.length;
+    const out = sess.base.data.slice();
+    for (const c of sess.cutouts) {
+      for (let i = 0; i < n; i++) if (c.mask[i]) out[i] = 0;
+    }
+    return { ...sess.base, data: out };
+  }, []);
 
   const qaNumbers = useCallback(
-    (mask: FillMask, cutouts: QaCutoutEntry[], barrier: Uint8Array, bigBarrier: Uint8Array) => {
+    (sess: QaSession) => {
       if (!scale) return { floorAreaM2: 0, perimeterM: 0 };
-      const mPerPx = mask.pointsPerPixel / scale.pointsPerMeter;
-      const composite = qaComposite(mask, cutouts);
+      const mPerPx = sess.base.pointsPerPixel / scale.pointsPerMeter;
+      const composite = qaComposite(sess);
       // Perimeter = outer walls only: big barrier components (walls) count,
       // text/symbol speckle doesn't; cut-out outlines don't either.
       const edges = perimeterEdges({
-        fill: composite.data,
-        w: mask.width,
-        h: mask.height,
-        barrier,
-        bigBarrier,
-        holes: cutouts.filter((c) => c.kind === 'flood').map((c) => c.mask),
-        polys: cutouts.filter((c) => c.kind === 'poly').map((c) => c.mask),
+        fill: sess.base.data,
+        w: sess.base.width,
+        h: sess.base.height,
+        barrier: sess.barrier,
+        bigBarrier: sess.bigBarrier,
+        holes: sess.cutouts.filter((c) => c.kind === 'flood').map((c) => c.mask),
+        polys: sess.cutouts.filter((c) => c.kind === 'poly').map((c) => c.mask),
       });
       return {
         floorAreaM2: maskPixelCount(composite.data) * mPerPx * mPerPx,
@@ -595,25 +593,104 @@ export default function App() {
 
         if (!qa || qa.sub === 'fill') {
           const img = ctx.getImageData(0, 0, raster.canvas.width, raster.canvas.height);
-          const mask = floodFill(img, bx, by);
+          // Clean the barrier map first: text, tags, fixture outlines and
+          // dashes must not act as walls, or the fill splits around them.
+          const raw = barrierMap(img, 0);
+          const { cleaned, stats } = cleanBarrierMap(raw, raster.canvas.width, raster.canvas.height);
+          console.debug(
+            `[qa] barrier: kept ${stats.keptPx}px in ${stats.keptComponents} runs; ` +
+              `removed ${stats.removedPx}px in ${stats.removedComponents} fragments`,
+          );
+          const barrier = dilateMask(cleaned, raster.canvas.width, raster.canvas.height, 2);
+          // Diagnostics: stash the cleaned barrier + fill as images for tuning.
+          {
+            const dbg = document.createElement('canvas');
+            dbg.width = raster.canvas.width;
+            dbg.height = raster.canvas.height;
+            const dctx = dbg.getContext('2d');
+            if (dctx) {
+              dctx.drawImage(raster.canvas, 0, 0);
+              const im = dctx.getImageData(0, 0, dbg.width, dbg.height);
+              for (let i = 0; i < cleaned.length; i++) {
+                if (cleaned[i]) {
+                  const o = i * 4;
+                  im.data[o] = 255;
+                  im.data[o + 1] = 0;
+                  im.data[o + 2] = 200;
+                  im.data[o + 3] = 160;
+                }
+              }
+              dctx.putImageData(im, 0, 0);
+            }
+            (window as unknown as { __qaBarrier?: HTMLCanvasElement }).__qaBarrier = dbg;
+          }
+          // Fill against a D-dilated barrier (seals door openings). Doors
+          // are ~10px wide at 1:75 but ~33px at 1:48, and sealing costs
+          // area accuracy (the fill stops D px inside the wall faces) —
+          // so start small and only dilate harder if the result looks like
+          // a leak (a huge fraction of the sheet filled).
+          const rasterPx = raster.canvas.width * raster.canvas.height;
+          let mask: FillMask | null = null;
+          for (const D of [6, 12, 18]) {
+            mask = floodFillFromBarrier(
+              dilateMask(cleaned, raster.canvas.width, raster.canvas.height, D),
+              raster.canvas.width,
+              raster.canvas.height,
+              bx,
+              by,
+            );
+            console.debug('[qa] try D =', D, '→ mask', mask ? maskPixelCount(mask.data) : 'null');
+            if (!mask || maskPixelCount(mask.data) < rasterPx * 0.25) break;
+          }
+          console.debug('[qa] click at buffer', Math.round(bx), Math.round(by), 'mask:', mask ? maskPixelCount(mask.data) : 'null');
+          if (mask) {
+            const dbg = (window as unknown as { __qaBarrier?: HTMLCanvasElement }).__qaBarrier;
+            if (dbg) {
+              const dctx = dbg.getContext('2d');
+              if (dctx) {
+                const im = dctx.getImageData(0, 0, dbg.width, dbg.height);
+                for (let i = 0; i < mask.data.length; i++) {
+                  if (mask.data[i]) {
+                    const o = i * 4;
+                    im.data[o] = Math.round(im.data[o] * 0.6 + 40);
+                    im.data[o + 1] = Math.round(im.data[o + 1] * 0.6 + 90);
+                    im.data[o + 2] = 255;
+                    im.data[o + 3] = 255;
+                  }
+                }
+                dctx.putImageData(im, 0, 0);
+              }
+            }
+          }
           if (!mask || maskPixelCount(mask.data) < 200) {
             showToast('Couldn’t find a closed shape there — try the middle of a room.');
             return;
           }
           mask.pointsPerPixel = raster.pointsPerPixel;
-          const barrier = barrierMap(img, 2);
+          // The room's solid region: the fill plus its interior pockets
+          // (text counters, fixture interiors). No wall pixels are added —
+          // area stays net of the wall lines.
+          const pockets = interiorPockets(mask.data, barrier, mask.width, mask.height);
+          const solid = mask.data.slice();
+          for (let i = 0; i < solid.length; i++) {
+            if (pockets[i]) solid[i] = 1;
+          }
+          const areaMask: FillMask = {
+            ...mask,
+            data: solid,
+          };
           const session: QaSession = {
             raster,
-            base: mask,
+            base: areaMask,
             barrier,
-            // Wall classification runs on the RAW barrier map so dense text
-            // doesn't merge into wall-sized blobs.
-            bigBarrier: bigBarrierMask(barrierMap(img, 0), mask.width, mask.height),
+            // Wall classification runs on the CLEANED barrier map — text is
+            // already gone, walls are the big connected runs.
+            bigBarrier: bigBarrierMask(cleaned, mask.width, mask.height),
             cutouts: [],
             sub: qa?.sub === 'cutout' ? 'cutout' : 'fill',
           };
           setQa(session);
-          const nums = qaNumbers(mask, [], session.barrier, session.bigBarrier);
+          const nums = qaNumbers(session);
           setQaValues((prev) => ({
             name: prev?.name ?? `Room ${pageMeasurements.filter((m) => m.kind === 'area').length + 1}`,
             floorAreaM2: nums.floorAreaM2,
@@ -621,36 +698,39 @@ export default function App() {
             wallHeightM: prev?.wallHeightM ?? defaultHeightM,
           }));
         } else if (qa.sub === 'cutout') {
-          // Cut out: the target is a hole the fill went around (island,
-          // cabinets, fixtures). Clicking open floor is a mistake — say so.
-          const img = ctx.getImageData(0, 0, raster.canvas.width, raster.canvas.height);
-          const bi = Math.floor(by) * raster.canvas.width + Math.floor(bx);
-          if (qa.base.data[bi]) {
-            showToast('That’s open floor — click inside a closed-off obstacle (island, cabinets).');
-            return;
-          }
-          const hole = holeFill(img, qa.base, bx, by);
-          const holePx = hole ? maskPixelCount(hole) : 0;
-          const fillPx = maskPixelCount(qa.base.data);
-          if (!hole || holePx < 2) {
+          // Cut out: flood the non-barrier region at the click; whatever of
+          // it lies inside the measured room is subtracted.
+          const composite = qaComposite(qa);
+          const compositePx = maskPixelCount(composite.data);
+          const region = floodFillFromBarrier(qa.barrier, qa.base.width, qa.base.height, bx, by);
+          if (!region) {
             showToast('Nothing closed-off to cut there — click inside an obstacle like an island.');
             return;
           }
-          if (holePx > fillPx * 0.5) {
+          const regionPx = maskPixelCount(region.data);
+          if (regionPx > compositePx * 0.5) {
             showToast('That spot isn’t closed off — it leaks way outside the room.');
             return;
           }
-          if (!holeIsInterior(qa.base.data, qa.barrier, hole, qa.base.width, qa.base.height)) {
-            showToast('That closed-off spot is outside the measured room.');
+          const removed = new Uint8Array(region.data.length);
+          let removedPx = 0;
+          for (let i = 0; i < region.data.length; i++) {
+            if (region.data[i] && composite.data[i]) {
+              removed[i] = 1;
+              removedPx++;
+            }
+          }
+          if (removedPx < 4) {
+            showToast('That’s outside the shaded room area — click inside an obstacle in the room.');
             return;
           }
           const mPerPx = qa.base.pointsPerPixel / scale.pointsPerMeter;
           const cutouts: QaCutoutEntry[] = [
             ...qa.cutouts,
-            { kind: 'flood', mask: hole, areaM2: holePx * mPerPx * mPerPx },
+            { kind: 'flood', mask: removed, areaM2: removedPx * mPerPx * mPerPx },
           ];
           setQa({ ...qa, cutouts });
-          const nums = qaNumbers(qa.base, cutouts, qa.barrier, qa.bigBarrier);
+          const nums = qaNumbers({ ...qa, cutouts });
           setQaValues((v) => (v ? { ...v, ...nums } : v));
         }
       } finally {
@@ -670,8 +750,8 @@ export default function App() {
         qa.base.height,
         qa.base.pointsPerPixel,
       );
-      // Only the part inside the filled room counts.
-      const composite = qaComposite(qa.base, qa.cutouts);
+      // Only the part inside the measured room counts.
+      const composite = qaComposite(qa);
       const removed = new Uint8Array(mask.length);
       let removedPx = 0;
       for (let i = 0; i < mask.length; i++) {
@@ -690,7 +770,7 @@ export default function App() {
         { kind: 'poly', mask: removed, areaM2: removedPx * mPerPx * mPerPx },
       ];
       setQa({ ...qa, cutouts });
-      const nums = qaNumbers(qa.base, cutouts, qa.barrier, qa.bigBarrier);
+      const nums = qaNumbers({ ...qa, cutouts });
       setQaValues((v) => (v ? { ...v, ...nums } : v));
       showToast('Cut-out added.');
     },
@@ -699,7 +779,7 @@ export default function App() {
 
   const acceptQa = useCallback(() => {
     if (!qa || !qaValues || !scale || !plan) return;
-    const composite = qaComposite(qa.base, qa.cutouts);
+    const composite = qaComposite(qa);
     const tint: [number, number, number, number] = [26, 102, 204, 70];
     const redTint: [number, number, number, number] = [214, 48, 49, 110];
     const full = maskToCanvas(composite, tint);
@@ -948,7 +1028,7 @@ export default function App() {
       }
     }
     if (qa) {
-      const composite = qaComposite(qa.base, qa.cutouts);
+      const composite = qaComposite(qa);
       const tint: [number, number, number, number] =
         theme === 'dark' ? [80, 150, 240, 90] : [26, 102, 204, 70];
       const red: [number, number, number, number] =
@@ -1211,7 +1291,7 @@ export default function App() {
             onRemoveCutout={(i) => {
               const cutouts = qa.cutouts.filter((_, idx) => idx !== i);
               setQa({ ...qa, cutouts });
-              const nums = qaNumbers(qa.base, cutouts, qa.barrier, qa.bigBarrier);
+              const nums = qaNumbers({ ...qa, cutouts });
               setQaValues((v) => (v ? { ...v, ...nums } : v));
             }}
             onAccept={acceptQa}

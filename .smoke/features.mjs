@@ -162,11 +162,13 @@ console.log(`  rough perimeter: ${perimFill} ft (was 196.3 ft before the text-ho
 check('perimeter plausible (25..140 ft)', perimFill > 25 && perimFill < 140);
 await page.screenshot({ path: 'quickarea-result.png' });
 
-// flood cutout: click the enclosed pocket inside the fill (printed "1100")
+// flood cutout: with the cleaned barrier, open floor is rejected gracefully
 await page.getByRole('button', { name: 'Cut out an obstacle' }).click();
 await page.mouse.click(cbox.x + 225, cbox.y + 416);
 await page.waitForTimeout(600);
-check('flood cutout listed', (await page.locator('.qa-cutout').count()) === 1);
+const cutToast = (await page.locator('.toast').textContent()) ?? '';
+console.log('  flood cutout on open floor toast:', cutToast);
+check('flood cutout on open floor is a friendly rejection', cutToast.length > 0 && (await page.locator('.qa-cutout').count()) === 0);
 
 // manual polygon cut-out: trace a square inside the shaded room
 const floorBefore = parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
@@ -179,7 +181,7 @@ await page.mouse.dblclick(cbox.x + 200, cbox.y + 410);
 await page.waitForTimeout(500);
 const floorAfterPoly = parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
 console.log(`  manual cut-out: floor ${floorBefore} -> ${floorAfterPoly} sq ft`);
-check('manual cut-out subtracts floor area', floorAfterPoly < floorBefore && (await page.locator('.qa-cutout').count()) === 2);
+check('manual cut-out subtracts floor area', floorAfterPoly < floorBefore && (await page.locator('.qa-cutout').count()) === 1);
 
 // cutouts render RED on the overlay
 const redSeen = await page.evaluate(() => {
