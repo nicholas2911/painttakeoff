@@ -1,18 +1,29 @@
-# Painting Takeoff & Quoting Tool — Master Roadmap (v2)
+# Painting Takeoff & Quoting Tool — Master Roadmap (v3)
 
 Working name: **PaintTakeoff** (rename before any public launch)
 
-Goal: painting-specific takeoff + quoting from plan PDFs. Upload plans,
-trace room perimeters, apply wall heights and paint codes, get a
-production-rate-based quote with gallons and labour hours — in one tool,
-at a tradesman price.
+**STATUS (2026-08-16): Phase 1 COMPLETE and field-validated.** The app
+(Electron + React, Windows installer, auto-updating via GitHub Releases)
+does takeoff → quote → Excel export. A real painting estimator tested it
+on his own plan sets and called it "an insane huge help". Repo:
+github.com/nicholas2911/painttakeoff · Current release: v0.5.0.
+
+Shipped so far: PDF viewer (fit-page, big-file rendering), per-page scale
+calibration (imperial+metric, presets+custom, verified flag, persistence),
+chain measurements with snapping + Ctrl+Z + per-page persistence,
+measurement kinds (wall/trim/ceiling polygons), openings/deductions with
+net wall area, Quick Area (flood-fill room detection, outer-wall
+perimeter, red/manual cutouts), Measurements panel with per-row ceiling
+heights, Price Book (Ontario defaults, editable), quote engine
+(gallons/hours/cost/price + sanity-check warnings), Excel export,
+custom title bar + update button ("New update" → download → "Restart
+to update") + "✓ Latest version" pill + clickable version number,
+CI release pipeline (tag → GitHub Actions → published release).
 
 Companion docs:
-- `RESEARCH.md` — domain research: workflow, Ontario rates, competitors,
-  Bluebeam pain points, sample plan inventory.
-- `ESTIMATING-SPEC.md` — the quoting data model and editable Ontario
-  default rates.
-- `sample-plans/` — 6 verified real plan sets covering all dev scenarios.
+- `RESEARCH.md` — domain research: workflow, Ontario rates, competitors.
+- `ESTIMATING-SPEC.md` — the quoting data model and default rates.
+- `sample-plans/` + `friend-examples/` — dev/test plan sets.
 
 Rule for every phase: **do not start the next phase until the exit gate
 of the current one passes.**
