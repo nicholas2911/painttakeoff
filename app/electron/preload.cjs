@@ -38,5 +38,9 @@ contextBridge.exposeInMainWorld('painttakeoff', {
     restart() {
       ipcRenderer.send('update-restart');
     },
+    /** Force an update check now (user clicked the version label). */
+    checkNow() {
+      return ipcRenderer.invoke('update-check-now');
+    },
   },
 });

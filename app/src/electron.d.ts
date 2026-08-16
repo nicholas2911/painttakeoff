@@ -15,6 +15,7 @@ export interface PaintTakeoffBridge {
     onState(cb: (state: UpdateState) => void): void;
     download(): void;
     restart(): void;
+    checkNow(): Promise<{ ok: boolean; latest?: boolean; busy?: boolean }>;
   };
 }
 

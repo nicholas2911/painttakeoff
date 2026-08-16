@@ -24,6 +24,8 @@ await page.addInitScript(() => {
   let stateCb = null;
   window.__downloads = 0;
   window.__restarts = 0;
+  window.__checks = 0;
+  window.__checkResult = { ok: true, latest: true };
   window.painttakeoff = {
     onOpenPdfPath() {},
     readPdf: async () => new Uint8Array(),
@@ -38,6 +40,13 @@ await page.addInitScript(() => {
       onState(cb) { stateCb = cb; },
       download() { window.__downloads++; },
       restart() { window.__restarts++; },
+      async checkNow() {
+        window.__checks++;
+        await new Promise((r) => setTimeout(r, 350)); // simulate network latency
+        const r = window.__checkResult;
+        if (r.ok && !r.latest) stateCb?.({ phase: 'available', version: '0.4.0' });
+        return r;
+      },
     },
   };
   window.__fire = (s) => stateCb?.(s);
@@ -80,6 +89,35 @@ await page.waitForTimeout(150);
 check('error shows try-again', (await page.locator('.update-btn').textContent())?.includes('Update failed — try again'));
 await page.locator('.update-btn').click();
 check('try again retries download', await page.evaluate(() => window.__downloads === 2));
+
+// ---------- click-to-check via the version label ----------
+check('version label shows v0.3.1', (await page.locator('.tb-version').textContent())?.trim() === 'v0.3.1');
+
+// latest path: toast sequence Checking… -> latest version
+await page.evaluate(() => { window.__checkResult = { ok: true, latest: true }; });
+await page.locator('.tb-version').click();
+await page.waitForTimeout(150);
+check('checking toast', (await page.locator('.toast').textContent())?.includes('Checking for updates'));
+await page.waitForTimeout(400);
+check('latest-version toast', (await page.locator('.toast').textContent())?.includes('latest version (0.3.1)'));
+check('checkNow IPC called once', await page.evaluate(() => window.__checks === 1));
+
+// available path: flashing New update button appears
+await page.locator('.update-btn').click().catch(() => {}); // clear any prior state if visible
+await page.evaluate(() => { window.__checkResult = { ok: true, latest: false }; });
+await page.locator('.tb-version').click();
+await page.waitForTimeout(600);
+check('available -> New update button', (await page.locator('.update-btn').textContent())?.includes('New update: 0.4.0'));
+
+// error path
+await page.evaluate(() => { window.__checkResult = { ok: false }; });
+await page.evaluate(() => window.__fire({ phase: 'idle' }));
+await page.locator('.tb-version').click();
+await page.waitForTimeout(600);
+check('error toast', (await page.locator('.toast').textContent())?.includes('Couldn’t check'));
+
+await page.screenshot({ path: 'titlebar-version.png', clip: { x: 0, y: 0, width: 700, height: 44 } });
+console.log('  screenshot: .smoke/titlebar-version.png');
 
 console.log('errors:', errors.length ? errors : 'none');
 await browser.close();

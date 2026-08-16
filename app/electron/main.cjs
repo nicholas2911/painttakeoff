@@ -192,7 +192,7 @@ function initUpdates(win) {
   });
 
   const check = () => {
-    if (checkInFlight) return; // never stack overlapping checks
+    if (checkInFlight) return;
     checkInFlight = true;
     updateLog('info', 'update check');
     autoUpdater
@@ -202,6 +202,26 @@ function initUpdates(win) {
         checkInFlight = false;
       });
   };
+
+  // Manual "click the version number" check. Returns a result the renderer
+  // turns into plain-English toast feedback. Errors surface HERE only —
+  // automatic checks (launch + timer) stay silent.
+  ipcMain.handle('update-check-now', async () => {
+    if (checkInFlight) return { ok: true, busy: true };
+    checkInFlight = true;
+    updateLog('info', 'manual update check (user clicked the version)');
+    try {
+      await autoUpdater.checkForUpdates();
+      // If the check found (or had already found) an update, the state
+      // machine already shows it — nothing more to say.
+      return { ok: true, latest: state.phase === 'idle' };
+    } catch (err) {
+      updateLog('warn', `manual update check failed: ${err.message}`);
+      return { ok: false };
+    } finally {
+      checkInFlight = false;
+    }
+  });
 
   updateLog('info', `updater started (version ${app.getVersion()})`);
   check();

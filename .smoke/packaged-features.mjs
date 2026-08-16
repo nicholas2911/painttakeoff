@@ -21,6 +21,9 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
 await page.waitForSelector('.welcome-title', { timeout: 30000 });
+await page.evaluate(() => localStorage.clear());
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('.welcome-title', { timeout: 30000 });
 await page.setInputFiles('input[type=file]', PDF);
 await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
 await page.waitForTimeout(600);

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { UpdateState } from '../types';
 import UpdateButton from './UpdateButton';
+import pkg from '../../package.json';
 
 /**
  * Custom window title bar — Electron only (the caller renders it only when
@@ -12,6 +13,7 @@ export default function TitleBar(props: {
   maximized: boolean;
   onMaximizedChange(v: boolean): void;
   update: UpdateState | null;
+  onCheckUpdates(): void;
 }) {
   const controls = window.painttakeoff?.windowControls;
   const updates = window.painttakeoff?.updates;
@@ -30,6 +32,17 @@ export default function TitleBar(props: {
       <div className="tb-brand">
         <span className="logo-mark">P</span>
         <span className="wordmark">PaintTakeoff</span>
+        {updates ? (
+          <button
+            className="tb-version"
+            title="Check for updates"
+            onClick={props.onCheckUpdates}
+          >
+            v{pkg.version}
+          </button>
+        ) : (
+          <span className="tb-version static">v{pkg.version}</span>
+        )}
         {props.fileName && (
           <span className="tb-file" title={props.fileName}>
             {props.fileName}

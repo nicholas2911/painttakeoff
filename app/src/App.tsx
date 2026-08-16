@@ -36,6 +36,7 @@ import {
   type FillMask,
 } from './measure/floodfill';
 import type { PagePoint, ToolMode, UpdateState, ViewTransform } from './types';
+import pkg from '../package.json';
 import Toolbar from './components/Toolbar';
 import TitleBar from './components/TitleBar';
 import Viewer, { type ViewerHandle, type PageRaster } from './components/Viewer';
@@ -151,6 +152,22 @@ export default function App() {
     if (!updates) return;
     updates.onState((s) => setUpdateState(s.phase === 'idle' ? null : s));
   }, []);
+
+  /** Click the version number: force an update check with plain-English feedback. */
+  const checkUpdatesNow = useCallback(async () => {
+    const updates = window.painttakeoff?.updates;
+    if (!updates) return;
+    showToast('Checking for updates…');
+    try {
+      const res = await updates.checkNow();
+      if (res.busy) return; // a check is already running — it will report itself
+      if (!res.ok) showToast('Couldn’t check — no internet connection.');
+      else if (res.latest) showToast(`You’re on the latest version (${pkg.version}).`);
+      // update found: the flashing "New update" button appears via onState
+    } catch {
+      showToast('Couldn’t check — no internet connection.');
+    }
+  }, [showToast]);
 
   /** Clear any in-progress clicking/dragging. Always safe. */
   const resetInteraction = useCallback(() => {
@@ -845,6 +862,7 @@ export default function App() {
           maximized={winMaximized}
           onMaximizedChange={setWinMaximized}
           update={updateState}
+          onCheckUpdates={() => void checkUpdatesNow()}
         />
       )}
       <input
