@@ -136,6 +136,27 @@ default with a dark toggle; a "?" button lists the shortcuts.
   calibration.
 - Right-click or Esc cancels any in-progress action.
 
+### Quoting (Price Book → Quote → Excel)
+- **Price Book** (`$` button in the toolbar): every quoting rate, editable
+  and persisted (`pt:v1:pricebook`) — loaded labour rate, production
+  rates (cut & roll / roll only / spray / textured), second-coat factor,
+  prep share, coverage, paint price by grade, coats, waste, trim rate,
+  margin, and optional heavy-prep / high-ceiling adders. **Reset to
+  Ontario defaults** restores the research values from ESTIMATING-SPEC.md.
+- **Quote** (toolbar button): turns the whole project's measurements into
+  a quote per the spec's quantity model — net wall SF (after openings) →
+  gallons (material SF ÷ coverage × waste), labour hours (coats with
+  second-coat factor + prep share), cost, and price = cost × (1+margin).
+  Ceilings use roll-only production; trim is priced per LF. The view shows
+  per-category breakdowns, paint to buy, labour, and the big **QUOTE PRICE**.
+- **Sanity cross-metrics** on every quote: price per SF of wall, price per
+  SF of floor (measured room floors if available, else wall ÷ 3 with the
+  assumption shown), labour share, gallons total. Out-of-band values get
+  an amber plain-English warning ("check your scale and ceiling heights").
+- **Export to Excel** (SheetJS): a two-sheet `.xlsx` — Measurements (one
+  row per measurement per page + page totals) and Quote (line items,
+  cross-metrics, price-book snapshot for audit), named
+  `<plan>-quote-<date>.xlsx`.
 ### Measurements (lengths, ceilings, rooms, openings)
 - **Measure** mode (`M`): chain measuring with a kind picker in the
   guidance bar — **Wall** (default), **Trim** (length only, per LF), or

@@ -51,6 +51,11 @@ import Welcome from './components/Welcome';
 import MeasurementsPanel, { formatArea } from './components/MeasurementsPanel';
 import QuickAreaCard, { type QaValues } from './components/QuickAreaCard';
 import OpeningPopover from './components/OpeningPopover';
+import PriceBookModal from './components/PriceBookModal';
+import QuoteView from './components/QuoteView';
+import { loadPriceBook, savePriceBook, type PriceBook } from './quote/priceBook';
+import { computeQuote, pageTotals } from './quote/quote';
+import { exportQuoteXlsx } from './quote/excel';
 import type { AreaOverlay, LiveMeasure } from './components/Overlay';
 import {
   AxisExpectedModal,
@@ -127,6 +132,9 @@ export default function App() {
   const [pendingOpening, setPendingOpening] = useState<PagePoint | null>(null);
   const [openingSizes, setOpeningSizes] = useState<OpeningSizes>(() => loadOpeningSizes());
   const [deduct, setDeduct] = useState(true);
+  const [priceBook, setPriceBook] = useState<PriceBook>(() => loadPriceBook());
+  const [priceBookOpen, setPriceBookOpen] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
   const [firstPointPlaced, setFirstPointPlaced] = useState(false);
   const [toolHint, setToolHint] = useState<'measure' | 'quickArea' | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -886,8 +894,51 @@ export default function App() {
     return img;
   }, []);
 
-  const areaOverlays = useMemo<AreaOverlay[]>(() => {
-    const list: AreaOverlay[] = [];
+  // ---------- quote ----------
+  const quotePages = useMemo(() => {
+    if (!plan) return [];
+    return Object.entries(measurements)
+      .map(([p, items]) => ({
+        pageNum: parseInt(p, 10),
+        items,
+        defaultHeightM,
+        deduct: loadDeductOpenings(plan.fingerprint, parseInt(p, 10)),
+      }))
+      .filter((pg) => pg.items.length > 0);
+  }, [plan, measurements, defaultHeightM]);
+
+  const quote = useMemo(() => {
+    const totals = quotePages.reduce(
+      (acc, pg) => {
+        const t = pageTotals(pg.items, pg.defaultHeightM, pg.deduct);
+        return {
+          wallsGrossM2: acc.wallsGrossM2 + t.wallsGrossM2,
+          openingsM2: acc.openingsM2 + t.openingsM2,
+          netWallM2: acc.netWallM2 + t.netWallM2,
+          trimM: acc.trimM + t.trimM,
+          ceilingM2: acc.ceilingM2 + t.ceilingM2,
+          floorM2: acc.floorM2 + t.floorM2,
+        };
+      },
+      { wallsGrossM2: 0, openingsM2: 0, netWallM2: 0, trimM: 0, ceilingM2: 0, floorM2: 0 },
+    );
+    return computeQuote(totals, priceBook);
+  }, [quotePages, priceBook]);
+
+  const handleExportQuote = useCallback(() => {
+    if (!plan) return;
+    const base = plan.name.replace(/\.pdf$/i, '').replace(/[^a-z0-9-_ ]/gi, '').trim() || 'quote';
+    const date = new Date().toISOString().slice(0, 10);
+    exportQuoteXlsx({
+      fileName: `${base}-quote-${date}.xlsx`,
+      pages: quotePages,
+      quote,
+      priceBook,
+    });
+    showToast('Quote spreadsheet downloaded.');
+  }, [plan, quotePages, quote, priceBook, showToast]);
+
+  const areaOverlays = useMemo<AreaOverlay[]>(() => {    const list: AreaOverlay[] = [];
     for (const m of pageMeasurements) {
       if (m.kind === 'area' && m.maskDataUrl && m.maskRect) {
         list.push({ id: m.id, rect: m.maskRect, source: getImage(m.maskDataUrl) });
@@ -1059,6 +1110,8 @@ export default function App() {
             return !open;
           })
         }
+        onOpenPriceBook={() => setPriceBookOpen(true)}
+        onOpenQuote={() => setQuoteOpen(true)}
       />
       {stepBar}
       <div className="viewer-wrap">
@@ -1243,6 +1296,23 @@ export default function App() {
         />
       )}
       {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
+      {priceBookOpen && (
+        <PriceBookModal
+          book={priceBook}
+          onChange={(b) => {
+            setPriceBook(b);
+            savePriceBook(b);
+          }}
+          onClose={() => setPriceBookOpen(false)}
+        />
+      )}
+      {quoteOpen && (
+        <QuoteView
+          quote={quote}
+          onExport={handleExportQuote}
+          onClose={() => setQuoteOpen(false)}
+        />
+      )}
     </div>
   );
 }

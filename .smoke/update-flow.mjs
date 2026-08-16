@@ -91,7 +91,7 @@ await page.locator('.update-btn').click();
 check('try again retries download', await page.evaluate(() => window.__downloads === 2));
 
 // ---------- click-to-check via the version label ----------
-check('version label shows v0.4.0', (await page.locator('.tb-version').textContent())?.trim() === 'v0.4.0');
+check('version label shows v0.5.0', (await page.locator('.tb-version').textContent())?.trim() === 'v0.5.0');
 
 // latest path: toast sequence Checking… -> latest version
 await page.evaluate(() => { window.__checkResult = { ok: true, latest: true }; });
@@ -99,7 +99,7 @@ await page.locator('.tb-version').click();
 await page.waitForTimeout(150);
 check('checking toast', (await page.locator('.toast').textContent())?.includes('Checking for updates'));
 await page.waitForTimeout(400);
-check('latest-version toast', (await page.locator('.toast').textContent())?.includes('latest version (0.4.0)'));
+check('latest-version toast', (await page.locator('.toast').textContent())?.includes('latest version (0.5.0)'));
 check('checkNow IPC called once', await page.evaluate(() => window.__checks === 1));
 
 // available path: flashing New update button appears

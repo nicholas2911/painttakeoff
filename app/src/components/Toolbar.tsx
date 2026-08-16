@@ -8,6 +8,7 @@ import {
   AreaIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  DollarIcon,
   DoorIcon,
   FitIcon,
   FolderIcon,
@@ -16,6 +17,7 @@ import {
   MoonIcon,
   MoveIcon,
   QuestionIcon,
+  QuoteIcon,
   RulerIcon,
   SunIcon,
   ZoomInIcon,
@@ -50,6 +52,8 @@ interface ToolbarProps {
   measureCount: number;
   panelOpen: boolean;
   onTogglePanel(): void;
+  onOpenPriceBook(): void;
+  onOpenQuote(): void;
 }
 
 export default function Toolbar(props: ToolbarProps) {
@@ -196,6 +200,13 @@ export default function Toolbar(props: ToolbarProps) {
         >
           <ListIcon />
           <span>Measurements{plan ? ` (${props.measureCount})` : ''}</span>
+        </button>
+        <button className="tool" disabled={!plan} onClick={props.onOpenQuote} title="See your quote">
+          <QuoteIcon />
+          <span>Quote</span>
+        </button>
+        <button className="tool" onClick={props.onOpenPriceBook} title="Your rates — labour, paint, margin">
+          <DollarIcon />
         </button>
       </div>
 
