@@ -136,23 +136,29 @@ default with a dark toggle; a "?" button lists the shortcuts.
   calibration.
 - Right-click or Esc cancels any in-progress action.
 
-### Measurements (lengths + rough areas)
-- **Measure** mode (`M`): chain measuring — click to start, each click adds
-  a segment (live segment + running total in the guidance bar), double-click
-  or **Enter** finishes, **Ctrl+Z** undoes the last point (or, when not
-  drawing, removes the most recent measurement on the page), Esc cancels.
-  **Left-drag always pans the plan, in every mode.** Points **snap** to
-  existing measurement endpoints/vertices within ~10px (ring indicator), so
-  walls connect without gaps; closing a loop snaps to the chain's start.
-  Finished measurements stay drawn on the page and persist per page
-  (`pt:v1:measure:*`). Click one in Move Around mode (or in the panel) to
-  select it; **Delete** removes it.
-- **Measurements panel** (toolbar toggle with count badge): the current
-  page's measurements with rename-on-click and per-row delete. Every row
-  has an editable **ceiling height** (default at the top of the panel,
-  persisted as `pt:v1:default-height-m`) and shows **wall area =
-  length × height**. Totals: length, floor area, and **total wall area**
-  (the quoting number) — units never mixed.
+### Measurements (lengths, ceilings, rooms, openings)
+- **Measure** mode (`M`): chain measuring with a kind picker in the
+  guidance bar — **Wall** (default), **Trim** (length only, per LF), or
+  **Ceiling** (closed polygon → area). Click to add points (they **snap**
+  to existing vertices, ring indicator), double-click or **Enter**
+  finishes, **Ctrl+Z** undoes a point (or, when not drawing, removes the
+  most recent measurement on the page), Esc cancels. **Left-drag always
+  pans the plan, in every mode.** Ceiling polygons close and compute area
+  on double-click. Finished measurements stay drawn and persist per page
+  (`pt:v1:measure:*`); pre-0.4 items migrate as kind=wall.
+- **Openings** mode (`O`): click a door/window on the plan, pick
+  **Door / Window / Slider** (defaults 21 / 15 / 40 sq ft — editable in
+  the panel's "Default sizes" row, `pt:v1:opening-sizes`; any pin's size
+  is editable too). Pins deduct from the page total by default, or can be
+  assigned to a specific wall/room row. A per-page **"Deduct openings"**
+  toggle (default ON, `pt:v1:pagesettings:*`) pauses deductions without
+  deleting pins.
+- **Measurements panel**: collapsible sections — Walls (per-row editable
+  ceiling heights, wall area), Rooms (Quick Area), Ceilings, Trim,
+  Openings (sizes, assignment, deduct toggle). Sticky totals footer:
+  **Gross wall area − Openings = Net wall area** (the quote number, shown
+  prominently), plus trim LF and ceiling SF. Rename on click, trash per
+  row, Delete key for the selected row.
 - **Quick Area** mode (`A`): click inside a room — a flood fill on a
   downscaled raster of the page estimates floor area and a rough perimeter.
   Perimeter counts **outer walls only**: barrier components are classified
@@ -167,7 +173,7 @@ default with a dark toggle; a "?" button lists the shortcuts.
 
 | Key | Action |
 |---|---|
-| `V` / `C` / `M` / `A` | Move Around / Set Scale / Measure / Quick Area |
+| `V` / `C` / `M` / `A` / `O` | Move Around / Set Scale / Measure / Quick Area / Openings |
 | `←` / `→` | Previous / next page |
 | `+` / `-` | Zoom in / out |
 | `Enter` or double-click | Finish a measurement chain |

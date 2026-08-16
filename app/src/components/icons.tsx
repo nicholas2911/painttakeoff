@@ -140,6 +140,15 @@ export const AreaIcon = ({ size }: IconProps) =>
     size,
   );
 
+export const DoorIcon = ({ size }: IconProps) =>
+  svg(
+    <>
+      <rect x="6" y="3" width="12" height="18" rx="1" />
+      <circle cx="14.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+    </>,
+    size,
+  );
+
 export const ListIcon = ({ size }: IconProps) =>
   svg(
     <>

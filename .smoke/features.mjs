@@ -75,16 +75,12 @@ await page.waitForSelector('.measure-panel');
 check('panel lists 2 measurements', (await page.locator('.mp-row').count()) === 2);
 const rowLens = await page.locator('.mp-row .mp-sub').allTextContents();
 console.log('  rows:', rowLens.join(' | '));
-const totalText = await page.locator('.mp-total-row strong').first().textContent();
-console.log('  total length:', totalText);
 const parseFtIn = (s) => {
   const m = /(\d+)' ([\d/ ]+)"/.exec(s.trim());
   return m ? parseInt(m[1], 10) : NaN;
 };
 const totalRow0 = parseFtIn(rowLens[0] ?? '');
 const totalRow1 = parseFtIn(rowLens[1] ?? '');
-const totalPanel = parseFtIn(totalText ?? '');
-check('panel total = row1 + row2 (feet, ±1)', Math.abs(totalPanel - (totalRow0 + totalRow1)) <= 1);
 
 // per-row ceiling height -> wall area: set row 1 to 10 ft, expect area ≈ length × 10
 await page.locator('.mp-row .mp-height').first().click();
@@ -95,7 +91,14 @@ const area0Text = await page.locator('.mp-row .mp-value').first().textContent();
 const area0 = parseFloat((area0Text ?? '0').replace(/[^0-9.]/g, ''));
 console.log(`  row 1: ${rowLens[0]} @ 10 ft = ${area0Text}`);
 check('row wall area = length × height (±2 sq ft)', Math.abs(area0 - totalRow0 * 10) <= 2 + totalRow0); // rounding of ft-in display
-check('total wall area row present', (await page.locator('.mp-total-row.grand').textContent())?.includes('Total wall area'));
+// gross = row1@10ft + row2@8ft; with no openings, net = gross
+const grossText = await page.locator('.mp-total-row').first().locator('strong').textContent();
+const grossShown = parseFloat((grossText ?? '0').replace(/[^0-9.]/g, ''));
+const grossExpected = area0 + totalRow1 * 8;
+console.log(`  gross wall: shown ${grossShown}, expected ≈${grossExpected.toFixed(0)}`);
+check('gross wall area = Σ row areas (±5)', Math.abs(grossShown - grossExpected) <= 5);
+const grandText = await page.locator('.mp-total-row.grand').textContent();
+check('net wall area is the grand total', grandText?.includes('Net wall area'));
 
 // rename row 1
 await page.locator('.mp-label').first().click();
@@ -123,8 +126,8 @@ await page.locator('.mp-trash').nth(1).click();
 await page.waitForTimeout(200);
 check('trash deletes a row', (await page.locator('.mp-row').count()) === 1);
 
-// delete selected via Delete key: click the row number (selects) then Delete
-await page.locator('.mp-num').first().click();
+// delete selected via Delete key: click the row subtext (selects) then Delete
+await page.locator('.mp-sub').first().click();
 await page.keyboard.press('Delete');
 await page.waitForTimeout(200);
 check('Delete key removes selected', (await page.locator('.mp-row').count()) === 0);
@@ -197,7 +200,7 @@ check('area measurement in panel', (await page.locator('.mp-row').count()) === 1
 const areaRowText = (await page.locator('.mp-row').first().textContent()) ?? '';
 console.log('  panel row:', areaRowText.trim());
 check('area row shows floor sq ft + wall area', areaRowText.includes('sq ft') && areaRowText.includes('floor'));
-check('floor + wall totals, no mixed units', (await page.locator('.mp-total-row').count()) === 2);
+check('net total present, no mixed units', (await page.locator('.mp-total-row.grand').textContent())?.includes('Net wall area'));
 
 // overlays persist across a page flip (blue room + red cutouts redraw)
 await page.keyboard.press('ArrowRight');

@@ -61,6 +61,7 @@ interface ViewerProps {
   onSelect(id: string | null): void;
   onDeleteMeasurement(id: string): void;
   onQuickAreaClick(p: PagePoint): void;
+  onOpeningClick(p: PagePoint): void;
   resetSignal: number;
   finishSignal: number;
   chainUndoSignal: number;
@@ -444,6 +445,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
           onSelect={props.onSelect}
           onDeleteMeasurement={props.onDeleteMeasurement}
           onQuickAreaClick={props.onQuickAreaClick}
+          onOpeningClick={props.onOpeningClick}
           resetSignal={props.resetSignal}
           finishSignal={props.finishSignal}
           chainUndoSignal={props.chainUndoSignal}

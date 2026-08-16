@@ -12,11 +12,18 @@ export interface ViewTransform {
   panY: number;
 }
 
-export type ToolMode = 'pan' | 'calibrate' | 'axisCheck' | 'measure' | 'quickArea';
+export type ToolMode = 'pan' | 'calibrate' | 'axisCheck' | 'measure' | 'quickArea' | 'openings';
 
 /** Auto-update state pushed from the Electron main process. */
 export interface UpdateState {
-  phase: 'idle' | 'available' | 'downloading' | 'ready' | 'error';
+  phase:
+    | 'idle' // never checked (show nothing)
+    | 'checking'
+    | 'uptodate'
+    | 'available'
+    | 'downloading'
+    | 'ready'
+    | 'error';
   version?: string;
   percent?: number;
 }

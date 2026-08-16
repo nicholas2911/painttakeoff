@@ -8,6 +8,7 @@ import {
   AreaIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  DoorIcon,
   FitIcon,
   FolderIcon,
   ListIcon,
@@ -157,8 +158,9 @@ export default function Toolbar(props: ToolbarProps) {
       <div className="tb-group">
         {modeButton('pan', 'Move Around', <MoveIcon />, 'Drag to move around the plan (V)')}
         {modeButton('calibrate', 'Set Scale', <RulerIcon />, 'Tell the app a real length on this page (C)', true)}
-        {modeButton('measure', 'Measure', <MeasureIcon />, 'Click points to measure lengths (M)')}
+        {modeButton('measure', 'Measure', <MeasureIcon />, 'Click points to measure lengths and ceilings (M)')}
         {modeButton('quickArea', 'Quick Area', <AreaIcon />, 'Click inside a room for a rough square footage (A)')}
+        {modeButton('openings', 'Openings', <DoorIcon />, 'Click doors and windows to deduct them (O)')}
       </div>
 
       <div className="tb-group">

@@ -91,7 +91,7 @@ await page.locator('.update-btn').click();
 check('try again retries download', await page.evaluate(() => window.__downloads === 2));
 
 // ---------- click-to-check via the version label ----------
-check('version label shows v0.3.1', (await page.locator('.tb-version').textContent())?.trim() === 'v0.3.1');
+check('version label shows v0.4.0', (await page.locator('.tb-version').textContent())?.trim() === 'v0.4.0');
 
 // latest path: toast sequence Checking… -> latest version
 await page.evaluate(() => { window.__checkResult = { ok: true, latest: true }; });
@@ -99,7 +99,7 @@ await page.locator('.tb-version').click();
 await page.waitForTimeout(150);
 check('checking toast', (await page.locator('.toast').textContent())?.includes('Checking for updates'));
 await page.waitForTimeout(400);
-check('latest-version toast', (await page.locator('.toast').textContent())?.includes('latest version (0.3.1)'));
+check('latest-version toast', (await page.locator('.toast').textContent())?.includes('latest version (0.4.0)'));
 check('checkNow IPC called once', await page.evaluate(() => window.__checks === 1));
 
 // available path: flashing New update button appears
@@ -118,6 +118,29 @@ check('error toast', (await page.locator('.toast').textContent())?.includes('Cou
 
 await page.screenshot({ path: 'titlebar-version.png', clip: { x: 0, y: 0, width: 700, height: 44 } });
 console.log('  screenshot: .smoke/titlebar-version.png');
+
+// ---------- always-visible update status pill ----------
+await page.evaluate(() => window.__fire({ phase: 'checking' }));
+await page.waitForTimeout(150);
+check('checking pill transient', (await page.locator('.update-btn').textContent())?.includes('Checking…'));
+await page.evaluate(() => window.__fire({ phase: 'uptodate', version: '0.4.0' }));
+await page.waitForTimeout(150);
+check('latest-version pill', (await page.locator('.update-btn').textContent())?.includes('✓ Latest version'));
+check('pill does not pulse', await page.locator('.update-btn').evaluate((el) => getComputedStyle(el).animationName === 'none'));
+const checksBefore = await page.evaluate(() => window.__checks);
+await page.locator('.update-btn').click();
+await page.waitForTimeout(500);
+check('pill click re-checks', (await page.evaluate(() => window.__checks)) > checksBefore);
+await page.evaluate(() => window.__fire({ phase: 'available', version: '0.5.0' }));
+await page.waitForTimeout(150);
+check('pill replaced by New update button', (await page.locator('.update-btn').textContent())?.includes('New update: 0.5.0'));
+await page.evaluate(() => window.__fire({ phase: 'ready', version: '0.5.0' }));
+await page.locator('.update-btn').click(); // Restart to update
+await page.evaluate(() => window.__fire({ phase: 'uptodate', version: '0.5.0' }));
+await page.waitForTimeout(150);
+check('pill returns after cycle', (await page.locator('.update-btn').textContent())?.includes('✓ Latest version'));
+await page.screenshot({ path: 'titlebar-latest-pill.png', clip: { x: 1000, y: 0, width: 500, height: 44 } });
+console.log('  screenshot: .smoke/titlebar-latest-pill.png');
 
 console.log('errors:', errors.length ? errors : 'none');
 await browser.close();

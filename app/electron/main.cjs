@@ -154,7 +154,10 @@ function initUpdates(win) {
     updateLog('info', `update available: ${info.version}`);
     send({ phase: 'available', version: info.version });
   });
-  autoUpdater.on('update-not-available', () => updateLog('info', 'no update available'));
+  autoUpdater.on('update-not-available', () => {
+    updateLog('info', 'no update available');
+    send({ phase: 'uptodate', version: app.getVersion() });
+  });
   autoUpdater.on('download-progress', (p) => {
     send({
       phase: 'downloading',
@@ -195,6 +198,12 @@ function initUpdates(win) {
     if (checkInFlight) return;
     checkInFlight = true;
     updateLog('info', 'update check');
+    // Tell the UI a check is running — but only from a blank slate; an
+    // existing status (pill or update button) stays up during re-checks,
+    // so a failed re-check never clobbers the last known state.
+    if (state.phase === 'idle') {
+      send({ phase: 'checking', version: state.version });
+    }
     autoUpdater
       .checkForUpdates()
       .catch((err) => updateLog('warn', `update check failed (offline?): ${err.message}`))
@@ -211,12 +220,20 @@ function initUpdates(win) {
     checkInFlight = true;
     updateLog('info', 'manual update check (user clicked the version)');
     try {
+      if (state.phase === 'idle') {
+        send({ phase: 'checking', version: state.version });
+      }
       await autoUpdater.checkForUpdates();
       // If the check found (or had already found) an update, the state
       // machine already shows it — nothing more to say.
-      return { ok: true, latest: state.phase === 'idle' };
+      return {
+        ok: true,
+        latest: state.phase === 'idle' || state.phase === 'uptodate',
+      };
     } catch (err) {
       updateLog('warn', `manual update check failed: ${err.message}`);
+      // Manual check failing from a blank slate: back to nothing-shown.
+      if (state.phase === 'checking') send({ phase: 'idle', version: undefined });
       return { ok: false };
     } finally {
       checkInFlight = false;

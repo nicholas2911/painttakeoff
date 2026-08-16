@@ -56,6 +56,7 @@ export default function TitleBar(props: {
             state={props.update}
             onDownload={() => updates.download()}
             onRestart={() => updates.restart()}
+            onCheckUpdates={props.onCheckUpdates}
           />
         </div>
       )}

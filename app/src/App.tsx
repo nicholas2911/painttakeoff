@@ -14,13 +14,19 @@ import {
   loadMeasurements,
   loadPanelOpen,
   loadDefaultWallHeight,
+  loadOpeningSizes,
+  loadDeductOpenings,
   newId,
   saveMeasurements,
   saveDefaultWallHeight,
+  saveOpeningSizes,
+  saveDeductOpenings,
   savePanelOpen,
   type AreaMeasurement,
   type Measurement,
   type MeasurementMap,
+  type OpeningSizes,
+  type OpeningType,
 } from './measure/measureStore';
 import {
   applyCutouts,
@@ -44,6 +50,7 @@ import StepBar from './components/StepBar';
 import Welcome from './components/Welcome';
 import MeasurementsPanel, { formatArea } from './components/MeasurementsPanel';
 import QuickAreaCard, { type QaValues } from './components/QuickAreaCard';
+import OpeningPopover from './components/OpeningPopover';
 import type { AreaOverlay, LiveMeasure } from './components/Overlay';
 import {
   AxisExpectedModal,
@@ -116,6 +123,10 @@ export default function App() {
   const [finishSignal, setFinishSignal] = useState(0);
   const [chainUndoSignal, setChainUndoSignal] = useState(0);
   const [defaultHeightM, setDefaultHeightM] = useState<number>(() => loadDefaultWallHeight());
+  const [measureKind, setMeasureKind] = useState<'wall' | 'trim' | 'ceiling'>('wall');
+  const [pendingOpening, setPendingOpening] = useState<PagePoint | null>(null);
+  const [openingSizes, setOpeningSizes] = useState<OpeningSizes>(() => loadOpeningSizes());
+  const [deduct, setDeduct] = useState(true);
   const [firstPointPlaced, setFirstPointPlaced] = useState(false);
   const [toolHint, setToolHint] = useState<'measure' | 'quickArea' | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -130,6 +141,11 @@ export default function App() {
 
   const scale = plan ? scales[pageNum] : undefined;
   const pageMeasurements = plan ? measurements[pageNum] ?? [] : [];
+
+  // Per-page settings (deductions toggle) follow the current page.
+  useEffect(() => {
+    if (plan) setDeduct(loadDeductOpenings(plan.fingerprint, pageNum));
+  }, [plan, pageNum]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -362,20 +378,115 @@ export default function App() {
   const handleFinishMeasurement = useCallback(
     (points: PagePoint[]) => {
       if (!scale || !plan) return;
+      const ppu = scale.pointsPerMeter;
+      const items = measurements[pageNum] ?? [];
+
+      if (measureKind === 'ceiling') {
+        if (points.length < 3) return;
+        let twice = 0;
+        for (let i = 0; i < points.length; i++) {
+          const p = points[i];
+          const q = points[(i + 1) % points.length];
+          twice += p.x * q.y - q.x * p.y;
+        }
+        const areaM2 = Math.abs(twice / 2) / (ppu * ppu);
+        if (areaM2 < 0.01) return;
+        let perimeterM = 0;
+        for (let i = 0; i < points.length; i++) {
+          perimeterM += pointDistance(points[i], points[(i + 1) % points.length]);
+        }
+        perimeterM /= ppu;
+        const n = items.filter((m) => m.kind === 'ceiling').length + 1;
+        const next = [
+          ...items,
+          {
+            id: newId(),
+            kind: 'ceiling' as const,
+            label: `Ceiling ${n}`,
+            points,
+            areaM2,
+            perimeterM,
+            createdAt: Date.now(),
+          },
+        ];
+        persistMeasurements(pageNum, next);
+        showToast(`Saved Ceiling ${n}: ${formatArea(areaM2, units)}.`);
+        return;
+      }
+
       let pts = 0;
       for (let i = 1; i < points.length; i++) pts += pointDistance(points[i - 1], points[i]);
-      const totalMeters = pts / scale.pointsPerMeter;
+      const totalMeters = pts / ppu;
       if (totalMeters < 0.01) return;
-      const items = measurements[pageNum] ?? [];
-      const label = `Wall ${items.filter((m) => m.kind === 'length').length + 1}`;
+      const isWall = measureKind === 'wall';
+      const n = items.filter(
+        (m) => m.kind === 'length' && (m.purpose ?? 'wall') === measureKind,
+      ).length + 1;
+      const label = isWall ? `Wall ${n}` : `Trim ${n}`;
       const next = [
         ...items,
-        { id: newId(), kind: 'length' as const, label, points, totalMeters, createdAt: Date.now() },
+        {
+          id: newId(),
+          kind: 'length' as const,
+          purpose: measureKind,
+          label,
+          points,
+          totalMeters,
+          createdAt: Date.now(),
+        },
       ];
       persistMeasurements(pageNum, next);
       showToast(`Saved ${label}: ${formatLength(totalMeters, units)}.`);
     },
-    [scale, plan, measurements, pageNum, persistMeasurements, units, showToast],
+    [scale, plan, measurements, pageNum, persistMeasurements, units, showToast, measureKind],
+  );
+
+  // ---------- openings ----------
+  const pickOpening = useCallback(
+    (type: OpeningType, customM2?: number) => {
+      if (!pendingOpening || !plan) return;
+      const items = measurements[pageNum] ?? [];
+      const n = items.filter((m) => m.kind === 'opening' && m.openType === type).length + 1;
+      const letter = type === 'door' ? 'D' : type === 'window' ? 'W' : 'S';
+      const sfM2 = customM2 ?? openingSizes[type];
+      const next = [
+        ...items,
+        {
+          id: newId(),
+          kind: 'opening' as const,
+          label: `${letter}${n}`,
+          openType: type,
+          point: pendingOpening,
+          sfM2,
+          assignedTo: null,
+          createdAt: Date.now(),
+        },
+      ];
+      persistMeasurements(pageNum, next);
+      setPendingOpening(null);
+      showToast(`Added ${letter}${n} — subtracts ${formatArea(sfM2, units)} from the page total.`);
+    },
+    [pendingOpening, plan, measurements, pageNum, persistMeasurements, openingSizes, units, showToast],
+  );
+
+  const setOpeningSf = useCallback(
+    (id: string, m2: number) => {
+      const items = (measurements[pageNum] ?? []).map((m) =>
+        m.id === id && m.kind === 'opening' ? { ...m, sfM2: m2 } : m,
+      );
+      persistMeasurements(pageNum, items);
+    },
+    [measurements, pageNum, persistMeasurements],
+  );
+
+  const setOpeningAssignment = useCallback(
+    (id: string, assignedTo: string | null) => {
+      const items = (measurements[pageNum] ?? []).map((m) =>
+        m.id === id && m.kind === 'opening' ? { ...m, assignedTo } : m,
+      );
+      persistMeasurements(pageNum, items);
+    },
+    [measurements, pageNum, persistMeasurements],
   );
 
   const deleteMeasurement = useCallback(
@@ -632,6 +743,7 @@ export default function App() {
       const clamped = Math.min(plan.numPages, Math.max(1, n));
       setPageNum(clamped);
       setSelectedId(null);
+      setPendingOpening(null);
     },
     [plan],
   );
@@ -643,6 +755,7 @@ export default function App() {
         return m;
       });
       setToolHint(null);
+      setPendingOpening(null);
       resetInteraction();
     },
     [resetInteraction, cancelQa],
@@ -677,7 +790,21 @@ export default function App() {
         setSpaceDown(true);
         return;
       }
-      if (isTyping()) return;
+      if (isTyping()) {
+        // Ctrl+Z still works when a non-text control (checkbox, select,
+        // button) has focus — only real text editing swallows it.
+        const el = document.activeElement;
+        const textEditing =
+          el instanceof HTMLTextAreaElement ||
+          (el instanceof HTMLInputElement &&
+            !['checkbox', 'radio', 'button', 'submit', 'range'].includes(el.type));
+        if (!textEditing && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          if (liveMeasure && liveMeasure.points > 0) setChainUndoSignal((n) => n + 1);
+          else undoLastMeasurement();
+        }
+        return;
+      }
       // Ctrl+Z: while drawing, undo the last point; otherwise remove the
       // most recent measurement on this page.
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -723,8 +850,12 @@ export default function App() {
           if (scale) changeMode('quickArea');
           else setToolHint('quickArea');
           break;
+        case 'o':
+          if (plan) changeMode('openings');
+          break;
         case 'Escape':
           setToolHint(null);
+          setPendingOpening(null);
           if (flow.step === 'idle') {
             setSelectedId(null);
             resetInteraction();
@@ -818,8 +949,29 @@ export default function App() {
         </StepBar>
       ) : (
         <StepBar kind="info" title="Measuring">
-          Click to start a line, keep clicking to add segments, double-click to finish. Drag always
-          moves the plan. Ctrl+Z undoes.
+          <span className="kind-picker">
+            {(['wall', 'trim', 'ceiling'] as const).map((k) => (
+              <button
+                key={k}
+                className={measureKind === k ? 'active' : ''}
+                onClick={() => setMeasureKind(k)}
+              >
+                {k === 'wall' ? 'Wall' : k === 'trim' ? 'Trim' : 'Ceiling'}
+              </button>
+            ))}
+          </span>
+          {measureKind === 'ceiling'
+            ? 'Click the corners of the ceiling, double-click to close it. Drag moves the plan.'
+            : measureKind === 'trim'
+              ? 'Click along the baseboard or casing, double-click to finish. Drag moves the plan.'
+              : 'Click to start a line, keep clicking to add segments, double-click to finish. Drag always moves the plan. Ctrl+Z undoes.'}
+        </StepBar>
+      );
+    } else if (mode === 'openings') {
+      stepBar = (
+        <StepBar kind="info" title="Openings">
+          Click on a door or window on the plan — I’ll ask what it is and subtract it from the
+          wall area. Esc cancels.
         </StepBar>
       );
     } else if (mode === 'quickArea') {
@@ -938,24 +1090,49 @@ export default function App() {
           onSelect={setSelectedId}
           onDeleteMeasurement={deleteMeasurement}
           onQuickAreaClick={(p) => void handleQuickAreaClick(p)}
+          onOpeningClick={(p) => setPendingOpening(p)}
           resetSignal={resetSignal}
           finishSignal={finishSignal}
           chainUndoSignal={chainUndoSignal}
         />
         {!plan && <Welcome onOpen={() => fileInputRef.current?.click()} />}
+        {pendingOpening && (
+          <OpeningPopover
+            x={pendingOpening.x * view.zoom + view.panX + 14}
+            y={pendingOpening.y * view.zoom + view.panY - 10}
+            units={units}
+            sizes={openingSizes}
+            onPick={pickOpening}
+            onCancel={() => setPendingOpening(null)}
+          />
+        )}
         {plan && panelOpen && (
           <MeasurementsPanel
             items={pageMeasurements}
             units={units}
             selectedId={selectedId}
             defaultHeightM={defaultHeightM}
+            openingSizes={openingSizes}
+            deduct={deduct}
             onDefaultHeightChange={(m) => {
               setDefaultHeightM(m);
               saveDefaultWallHeight(m);
             }}
+            onOpeningSizesChange={(s) => {
+              setOpeningSizes(s);
+              saveOpeningSizes(s);
+            }}
+            onToggleDeduct={() => {
+              if (!plan) return;
+              const next = !deduct;
+              setDeduct(next);
+              saveDeductOpenings(plan.fingerprint, pageNum, next);
+            }}
             onSelect={setSelectedId}
             onRename={renameMeasurement}
             onSetHeight={setMeasurementHeight}
+            onSetOpeningSf={setOpeningSf}
+            onSetOpeningAssignment={setOpeningAssignment}
             onDelete={deleteMeasurement}
             onClose={() => {
               savePanelOpen(false);

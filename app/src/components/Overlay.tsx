@@ -51,6 +51,7 @@ interface OverlayProps {
   onSelect(id: string | null): void;
   onDeleteMeasurement(id: string): void;
   onQuickAreaClick(p: PagePoint): void;
+  onOpeningClick(p: PagePoint): void;
   /** Bump to clear in-progress interaction (Escape). */
   resetSignal: number;
   /** Bump to finish the current chain (Enter / double-click). */
@@ -77,6 +78,12 @@ export default function Overlay(props: OverlayProps) {
   const cMeasure = props.dark ? '#3ecf7a' : '#0d8a4f'; // finished measurements
   const cActive = '#1a66cc'; // active chain / selection
 
+  const SQFT_PER_M2 = 10.7639;
+  const formatAreaLabel = (m2: number) =>
+    units === 'metric' ? `${m2.toFixed(1)} m²` : `${Math.round(m2 * SQFT_PER_M2)} sq ft`;
+  const formatAreaShort = (m2: number) =>
+    units === 'metric' ? `${m2.toFixed(1)} m²` : `${Math.round(m2 * SQFT_PER_M2)}`;
+
   /** Chain drawing is used by Measure and by Quick Area's polygon cut-out. */
   const chainMode = mode === 'measure' || (mode === 'quickArea' && props.qaDrawing);
 
@@ -100,12 +107,13 @@ export default function Overlay(props: OverlayProps) {
       }
     }
     for (const m of props.measurements) {
-      if (m.kind !== 'length') continue;
-      for (const v of m.points) {
-        const d = pointDistance(p, v);
-        if (d < bestD) {
-          bestD = d;
-          best = v;
+      if (m.kind === 'length' || m.kind === 'ceiling') {
+        for (const v of m.points) {
+          const d = pointDistance(p, v);
+          if (d < bestD) {
+            bestD = d;
+            best = v;
+          }
         }
       }
     }
@@ -260,6 +268,53 @@ export default function Overlay(props: OverlayProps) {
 
     // Finished measurements
     for (const m of props.measurements) {
+      if (m.kind === 'ceiling') {
+        // Ceiling polygon: tinted distinctly (violet) from Quick Area rooms.
+        const selected = m.id === props.selectedId;
+        const tint = props.dark ? 'rgba(178, 132, 220, 0.30)' : 'rgba(142, 68, 173, 0.20)';
+        const edge = props.dark ? '#b284dc' : '#8e44ad';
+        ctx.beginPath();
+        m.points.forEach((p, i) => (i === 0 ? ctx.moveTo(sx(p), sy(p)) : ctx.lineTo(sx(p), sy(p))));
+        ctx.closePath();
+        ctx.fillStyle = tint;
+        ctx.fill();
+        ctx.strokeStyle = selected ? cActive : edge;
+        ctx.lineWidth = selected ? 3 : 1.5;
+        ctx.stroke();
+        const cxm = m.points.reduce((s, p) => s + p.x, 0) / m.points.length;
+        const cym = m.points.reduce((s, p) => s + p.y, 0) / m.points.length;
+        drawLabel(sx({ x: cxm, y: cym }), sy({ x: cxm, y: cym }), formatAreaLabel(m.areaM2), edge, selected ? m.id : undefined);
+        continue;
+      }
+      if (m.kind === 'opening') {
+        const selected = m.id === props.selectedId;
+        const color =
+          m.openType === 'door' ? '#e15b00' : m.openType === 'window' ? '#1a66cc' : '#8e44ad';
+        const x = sx(m.point);
+        const y = sy(m.point);
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = selected ? 3 : 1.5;
+        ctx.beginPath();
+        if (m.openType === 'door') ctx.arc(x, y, 6, 0, Math.PI * 2);
+        else if (m.openType === 'window') {
+          ctx.moveTo(x, y - 6);
+          ctx.lineTo(x + 6, y);
+          ctx.lineTo(x, y + 6);
+          ctx.lineTo(x - 6, y);
+          ctx.closePath();
+        } else ctx.rect(x - 5.5, y - 5.5, 11, 11);
+        ctx.fill();
+        if (selected) {
+          ctx.beginPath();
+          ctx.arc(x, y, 11, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+        ctx.fillStyle = color;
+        ctx.fillText(`−${formatAreaShort(m.sfM2)}`, x + 9, y + 4);
+        continue;
+      }
       if (m.kind !== 'length') continue;
       const selected = m.id === props.selectedId;
       const color = selected ? cActive : cMeasure;
@@ -341,11 +396,36 @@ export default function Overlay(props: OverlayProps) {
     return pointDistance(p, { x: a.x + t * dx, y: a.y + t * dy });
   };
 
+  const pointInPolygon = (p: PagePoint, poly: PagePoint[]): boolean => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i];
+      const b = poly[j];
+      if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+
   const hitTest = (p: PagePoint): string | null => {
     const tol = 7 / view.zoom;
     let best: string | null = null;
     let bestD = tol;
     for (const m of props.measurements) {
+      if (m.kind === 'opening') {
+        const d = pointDistance(p, m.point);
+        if (d < bestD) {
+          bestD = d;
+          best = m.id;
+        }
+        continue;
+      }
+      if (m.kind === 'ceiling') {
+        // inside the polygon counts as a hit
+        if (pointInPolygon(p, m.points)) return m.id;
+        continue;
+      }
       if (m.kind !== 'length') continue;
       for (let i = 1; i < m.points.length; i++) {
         const d = distToSegment(p, m.points[i - 1], m.points[i]);
@@ -430,6 +510,11 @@ export default function Overlay(props: OverlayProps) {
       return;
     }
 
+    if (mode === 'openings') {
+      props.onOpeningClick(p);
+      return;
+    }
+
     if (mode === 'measure' && pointsPerMeter) {
       const del = deleteBoxRef.current;
       if (del && pos.x >= del.x && pos.x <= del.x + del.w && pos.y >= del.y && pos.y <= del.y + del.h) {
@@ -468,7 +553,11 @@ export default function Overlay(props: OverlayProps) {
   const cursorStyle =
     spaceDown || mode === 'pan'
       ? 'grab'
-      : mode === 'calibrate' || mode === 'axisCheck' || mode === 'measure' || mode === 'quickArea'
+      : mode === 'calibrate' ||
+          mode === 'axisCheck' ||
+          mode === 'measure' ||
+          mode === 'quickArea' ||
+          mode === 'openings'
         ? 'crosshair'
         : 'default';
 

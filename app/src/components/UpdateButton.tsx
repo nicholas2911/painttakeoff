@@ -9,8 +9,27 @@ export default function UpdateButton(props: {
   state: UpdateState;
   onDownload(): void;
   onRestart(): void;
+  onCheckUpdates(): void;
 }) {
   const { state } = props;
+  if (state.phase === 'checking') {
+    return (
+      <span className="update-btn neutral" title="Checking for updates…">
+        Checking…
+      </span>
+    );
+  }
+  if (state.phase === 'uptodate') {
+    return (
+      <button
+        className="update-btn uptodate"
+        title="You're on the latest version — click to check again"
+        onClick={props.onCheckUpdates}
+      >
+        ✓ Latest version
+      </button>
+    );
+  }
   if (state.phase === 'available') {
     return (
       <button
