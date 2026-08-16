@@ -143,10 +143,35 @@
     quick single line.</p>
     <p>Finished measurements <strong>stay on the page</strong> — flip to another page and come back,
     they're still there (even after closing the app). Click one to select it; <span class="kbd">Delete</span>
-    removes it. Right-click while drawing undoes your last point.</p>
+    removes it, and <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> undoes your last one.
+    New lines <strong>snap</strong> onto the ends of lines you've already drawn, so walls connect
+    without gaps.</p>
+    <p>The toolbar also picks <strong>what</strong> you're measuring: <strong>Wall</strong> (default),
+    <strong>Trim</strong> (baseboards &amp; casing, priced per foot), or <strong>Ceiling</strong>
+    (click the room's corners, double-click to close — you get square feet).</p>
     <p>Open <span class="btn btn-blue">Measurements</span> in the toolbar for the list of everything on
-    the page — rename any line, delete any line, and read the <strong>total at the bottom</strong>.</p>
+    the page. Every wall row has its own <strong>ceiling height box</strong> (change it for bulkheads
+    and dropped ceilings) and shows its <strong>wall square footage</strong> — length × height. The
+    bottom of the panel keeps the running <strong>total wall area</strong>, the number you quote from.</p>
   </div>
+
+  <div class="card">
+    <h2 class="plain">Openings — doors &amp; windows</h2>
+    <p>Click <span class="btn btn-blue">Openings</span>, then click each door and window on the plan.
+    Pick Door / Window / Slider and the app subtracts the standard size (21 / 15 / 40 sq ft —
+    all adjustable) from your wall area. The panel shows <strong>Gross − Openings = Net wall area</strong>;
+    net is the number you price. Leave the deduct checkbox off if you don't deduct openings.</p>
+  </div>
+
+  <div class="card">
+    <h2 class="plain">Turn it into a quote</h2>
+    <p>Once your rooms are measured, click <span class="btn btn-blue">Quote</span>. The app applies
+    Ontario painting rates — production speed, coverage, paint prices, labour — and gives you
+    <strong>gallons to buy, labour hours, and a quote price</strong>, with sanity checks that warn
+    you if a number looks off (usually a scale or ceiling-height slip).</p>
+    <p>Every rate lives in the <strong>Price Book</strong> ($ button) — change anything to match how
+    your shop prices, and it's remembered. <strong>Export quote</strong> downloads an Excel file with
+    all measurements and the full quote breakdown.</p>
 
   <div class="card">
     <h2 class="plain">Quick Area — rough room sizes in one click</h2>
@@ -171,7 +196,7 @@
       <p><strong>Pan</strong> — drag with the mouse in <em>Move Around</em> mode, or hold <span class="kbd">Space</span> and drag</p>
       <p><strong>Fit the page</strong> — Fit ▾ menu in the zoom cluster</p>
       <p><strong>Pages</strong> — arrow keys, or type a page number</p>
-      <p><strong>Cancel anything</strong> — <span class="kbd">Esc</span> or right-click</p>
+      <p><strong>Cancel / undo</strong> — <span class="kbd">Esc</span> cancels · <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> undoes</p>
       <p><strong>Modes</strong> — <span class="kbd">V</span> move · <span class="kbd">C</span> set scale · <span class="kbd">M</span> measure</p>
     </div>
   </div>
@@ -192,9 +217,9 @@
       <li><strong>Need an unusual scale?</strong> "Common scales… → Custom…" lets you type any
       ratio (1:60) or inches-per-foot (3/16" = 1').</li>
     </ul>
-    <div class="warn"><strong>Coming next:</strong> automatic quoting — paint codes, opening
-    deductions, gallons and labour hours from your measurements, exported to a priceable sheet.
-    This guide covers the measuring foundation it builds on.</div>
+    <div class="warn"><strong>Updates come to you:</strong> the app checks for new versions by itself.
+    A flashing <strong>"New update"</strong> button appears at the top — click it, then click
+    "Restart to update". The <strong>✓ Latest version</strong> pill up there means you're current.</div>
   </div>
 
   <footer>PaintTakeoff · questions or weird plan files → send them back to Nicholas with a note about what you tried</footer>
