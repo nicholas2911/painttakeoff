@@ -4,6 +4,7 @@
  * Run with the dev server on :5199. Fails on any console error.
  */
 import { chromium } from 'playwright-core';
+import { openPdf, reopenProject } from './helpers.mjs';
 
 const EXE =
   'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
@@ -24,15 +25,14 @@ page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
 await page.goto(APP, { waitUntil: 'networkidle' });
 
-// --- 1. welcome screen ---
-check('welcome title', (await page.locator('.welcome-title').textContent())?.includes('Welcome to PaintTakeoff'));
-check('3 numbered steps', (await page.locator('.welcome-step').count()) === 3);
+// --- 1. dashboard (start screen) ---
+check('greeting renders', /Good (morning|afternoon|evening)/.test((await page.locator('.dash-greeting').textContent()) ?? ''));
+check('3 numbered steps', (await page.locator('.dash-howto-item').count()) === 3);
 check('big open button', await page.locator('.big-open-button').isVisible());
 check('light theme default', (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light');
 
 // --- 2. open a plan ---
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 30000 });
+await openPdf(page, PDF);
 const barText = async () => page.locator('.step-bar').textContent();
 check('step 2 banner after open', (await barText())?.includes('Step 2 of 3'));
 check('badge: no scale', (await page.locator('.scale-badge').textContent())?.includes('No scale'));
@@ -123,8 +123,7 @@ check('trade-language preset', presetFirst?.includes('1/4 inch = 1 foot'));
 
 // --- 9. persistence across reload ---
 await page.reload({ waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 30000 });
+  await reopenProject(page);
 check('badge restored after reload', (await page.locator('.scale-badge').textContent())?.includes('Scale is set ✓'));
 check('theme persisted', (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light');
 

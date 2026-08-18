@@ -149,6 +149,24 @@ export const DoorIcon = ({ size }: IconProps) =>
     size,
   );
 
+export const PagesIcon = ({ size }: IconProps) =>
+  svg(
+    <>
+      <rect x="8" y="2" width="12" height="16" rx="2" />
+      <path d="M4 6v14a2 2 0 0 0 2 2h10" />
+    </>,
+    size,
+  );
+
+export const HomeIcon = ({ size }: IconProps) =>
+  svg(
+    <>
+      <path d="M3 11.5 12 3l9 8.5" />
+      <path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10" />
+    </>,
+    size,
+  );
+
 export const DollarIcon = ({ size }: IconProps) =>
   svg(
     <>

@@ -4,6 +4,7 @@
  * Prints before/after/true numbers.
  */
 import { chromium } from 'playwright-core';
+import { openPdf, reopenProject } from './helpers.mjs';
 
 const EXE =
   'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
@@ -54,8 +55,7 @@ page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 await page.goto(APP, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+  await openPdf(page, PDF);
 await page.fill('.page-input', '5');
 await page.locator('.page-input').blur();
 await page.waitForTimeout(1000);

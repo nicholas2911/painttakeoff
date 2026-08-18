@@ -5,6 +5,7 @@
  *  c) click-DRAG works for the double-check (field habit).
  */
 import { chromium } from 'playwright-core';
+import { openPdf, reopenProject } from './helpers.mjs';
 
 const EXE =
   'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
@@ -27,8 +28,7 @@ const badge = async () => (await page.locator('.scale-badge').textContent())?.tr
 await page.goto(APP, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 30000 });
+  await openPdf(page, PDF);
 const box = await page.locator('.viewer').boundingBox();
 const cx = box.x + 750, cy = box.y + 420;
 
@@ -66,8 +66,7 @@ await page.waitForTimeout(900);
 check('(a) page 1 still confirmed after page flips', (await badge())?.includes('Scale is set ✓'));
 
 await page.reload({ waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 30000 });
+  await reopenProject(page);
 check('(a) page 1 confirmation survives reload', (await badge())?.includes('Scale is set ✓'));
 await page.keyboard.press('ArrowRight');
 await page.waitForTimeout(900);

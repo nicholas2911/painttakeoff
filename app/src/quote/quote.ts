@@ -92,13 +92,14 @@ function paintMath(
   netSF: number,
   productionPerHr: number,
   pb: PriceBook,
+  sprayed: boolean,
 ): QuoteCategory {
   if (netSF <= 0) {
     return { qty: 0, gallons: 0, hours: 0, labourCost: 0, materialCost: 0, cost: 0, price: 0 };
   }
   const coats = Math.max(1, Math.round(pb.coats));
   const materialSF = netSF * coats;
-  const waste = pb.wallMethod === 'spray' ? pb.wasteSprayed : pb.wasteRolled;
+  const waste = sprayed ? pb.wasteSprayed : pb.wasteRolled;
   const gallons = (materialSF / pb.coverage[pb.coverageChoice]) * (1 + waste);
   // Application hours: first coat full rate, later coats at the time factor.
   const appHours = (netSF / productionPerHr) * (1 + (coats - 1) * pb.secondCoatFactor);
@@ -127,8 +128,8 @@ export function computeQuote(
   const trimLF = totals.trimM * FT_PER_M;
   const floorSFMeasured = totals.floorM2 * SQFT_PER_M2;
 
-  const walls = paintMath(netWallSF, pb.production[pb.wallMethod], pb);
-  const ceilings = paintMath(ceilingSF, pb.production.rollOnly, pb);
+  const walls = paintMath(netWallSF, pb.production[pb.wallMethod], pb, pb.wallMethod === 'spray');
+  const ceilings = paintMath(ceilingSF, pb.production.rollOnly, pb, false);
   const trimCost = trimLF * pb.trimRate;
   const trim: QuoteCategory = {
     qty: trimLF,

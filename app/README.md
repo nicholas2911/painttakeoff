@@ -82,11 +82,21 @@ Notes:
 
 ## What's implemented
 
-The UX is a guided 3-step flow aimed at non-technical users:
-**1. Open a plan → 2. Set the scale → 3. Measure.** A welcome screen shows
-the three steps as numbered cards; a persistent guidance bar under the
-toolbar always says what to do next in plain English; light theme by
-default with a dark toggle; a "?" button lists the shortcuts.
+The app opens on a **dashboard**: greeting, a big New Project button, and
+recent-project cards (name, company, date, page count, net wall SF, page-1
+thumbnail). New Project → details (name/company/notes) → **page picker**
+(thumbnail grid, select all/none, "Start with X of Y pages") → viewer shows
+only the selected pages ("Page 2 of 4"); the **Pages** toolbar button
+reopens the picker mid-project. Projects persist in localStorage
+(`pt:v1:projects`) with the PDF bytes in **IndexedDB** — a project reopens
+even if the original file moved. Per-page scales and measurements are keyed
+by PDF fingerprint + ORIGINAL page index, so subsets and re-selection never
+disturb them. Dragging a PDF onto the window drops into the same flow.
+
+The guided UX is aimed at non-technical users: **1. Open a plan → 2. Set the
+scale → 3. Measure.** A persistent guidance bar under the toolbar always
+says what to do next in plain English; light theme by default with a dark
+toggle; a "?" button lists the shortcuts.
 
 ### M1 — viewer
 - Open a PDF via the **Open Plan** button or by **dropping a file anywhere**
@@ -235,6 +245,7 @@ electron/   main.cjs       (window, app:// protocol, CLI-arg PDF open, IPC)
 src/
   pdf/      pdfDocument.ts  (worker setup, file loading, fingerprint)
             pageRenderer.ts (region rendering, LRU bitmap cache, cancel)
+            projectStore.ts (project meta + PDF bytes in IndexedDB)
   measure/  units.ts        (length parsing/formatting, all math in meters)
             presets.ts      (scale presets, ratio <-> points-per-meter)
             scaleStore.ts   (per-page scale state, pt:v1:scale:*)
@@ -246,7 +257,9 @@ src/
                              measure, finished measurements, area overlays)
             Toolbar.tsx     (nav, zoom, modes, presets, units/theme/? toggles)
             StepBar.tsx     (the always-on "what to do next" bar)
-            Welcome.tsx     (empty state: 3 numbered steps + big open button)
+            Dashboard.tsx   (start screen: greeting + recent projects)
+            NewProjectModal.tsx  (name/company/notes + PDF)
+            PagePickerModal.tsx  (lazy thumbnail grid, page subset)
             MeasurementsPanel.tsx (per-page list, rename, totals)
             QuickAreaCard.tsx     (rough room result + cutouts)
             Modals.tsx      (Set Scale, double-check, custom scale, shortcuts)

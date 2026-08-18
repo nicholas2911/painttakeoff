@@ -1,5 +1,6 @@
 /* Quick Area on an imperial vector set (townhouse, 1/4"=1'-0" = 1:48). */
 import { chromium } from 'playwright-core';
+import { openPdf, reopenProject } from './helpers.mjs';
 const EXE = 'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
 const PDF = 'C:/Users/Nicholas/Desktop/coding/paint-takeoff/sample-plans/residential-permit-chicago-townhouse.pdf';
 const errors = [];
@@ -11,8 +12,7 @@ page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 await page.goto('http://localhost:5199/', { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 30000 });
+  await openPdf(page, PDF);
 // find a floor-plan page: page 2 usually has plans
 await page.fill('.page-input', '5');
 await page.locator('.page-input').blur();

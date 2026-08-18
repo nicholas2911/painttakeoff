@@ -4,6 +4,7 @@
  * Run with the dev server on :5199.
  */
 import { chromium } from 'playwright-core';
+import { openPdf, reopenProject } from './helpers.mjs';
 
 const EXE =
   'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
@@ -23,8 +24,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
 await page.goto(APP, { waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+await openPdf(page, PDF);
 await page.waitForTimeout(600);
 
 // --- page count ---

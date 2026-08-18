@@ -20,11 +20,15 @@ const page = await app.firstWindow();
 page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
-await page.waitForSelector('.welcome-title', { timeout: 30000 });
+await page.waitForSelector('.dash-greeting', { timeout: 30000 });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
-await page.waitForSelector('.welcome-title', { timeout: 30000 });
+await page.waitForSelector('.dash-greeting', { timeout: 30000 });
 await page.setInputFiles('input[type=file]', PDF);
+await page.waitForSelector('.modal .np-input.big', { timeout: 15000 });
+await page.getByRole('button', { name: 'Create project' }).click();
+await page.waitForSelector('.picker-modal', { timeout: 30000 });
+await page.locator('.picker-footer .go-button').click();
 await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
 await page.waitForTimeout(600);
 check('friend set renders', (await page.locator('.page-label').textContent())?.includes('of 11'));
@@ -48,7 +52,9 @@ check('chain measure saved in packaged app', (await page.getByRole('button', { n
 // quick area
 await page.getByRole('button', { name: 'Quick Area' }).click();
 const cbox = await page.locator('.pdf-canvas').boundingBox();
-await page.mouse.click(cbox.x + 260, cbox.y + 366);
+const zoom = parseInt(await page.locator('.zoom-pct').textContent(), 10) / 100;
+// community-centre hall in page coords (friend set page 5)
+await page.mouse.click(cbox.x + 640 * zoom, cbox.y + 850 * zoom);
 await page.waitForSelector('.qa-card', { timeout: 10000 });
 const floorSf = parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
 console.log('  quick area floor:', floorSf, 'sq ft');

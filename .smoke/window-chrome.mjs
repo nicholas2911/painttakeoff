@@ -39,6 +39,10 @@ check('windowed root has rounding', await page.evaluate(() =>
 
 // --- load the friend set, verify fit-page still frames the sheet ---
 await page.setInputFiles('input[type=file]', PDF);
+await page.waitForSelector('.modal .np-input.big', { timeout: 15000 });
+await page.getByRole('button', { name: 'Create project' }).click();
+await page.waitForSelector('.picker-modal', { timeout: 30000 });
+await page.locator('.picker-footer .go-button').click();
 await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
 await page.waitForTimeout(800);
 check('file name in title bar', (await page.locator('.tb-file').textContent())?.includes('Architectural'));

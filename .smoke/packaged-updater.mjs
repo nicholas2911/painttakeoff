@@ -8,7 +8,7 @@ const app = await electron.launch({ executablePath: EXE });
 const page = await app.firstWindow();
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(e.message));
-await page.waitForSelector('.welcome-title', { timeout: 30000 });
+await page.waitForSelector('.dash-greeting', { timeout: 30000 });
 await page.waitForTimeout(4000); // let the update check fail against the placeholder owner
 check: {
   const ok = fs.existsSync(LOG);

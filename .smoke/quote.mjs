@@ -3,6 +3,7 @@
  * Also: price book edit/persist/reset, cross-metric warning, Excel export.
  */
 import { chromium } from 'playwright-core';
+import { openPdf, reopenProject } from './helpers.mjs';
 import { getDocument } from '../app/node_modules/pdfjs-dist/legacy/build/pdf.mjs';
 import fs from 'node:fs';
 
@@ -86,8 +87,7 @@ await page.evaluate((seed) => {
   localStorage.clear();
   for (const [k, v] of Object.entries(seed)) localStorage.setItem(k, JSON.stringify(v));
 }, seed);
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+await openPdf(page, PDF);
 await page.fill('.page-input', '5');
 await page.locator('.page-input').blur();
 await page.waitForTimeout(800);
@@ -122,6 +122,7 @@ console.log(`  at $60/hr: shown ${price60} vs expected ${expected60.toFixed(2)}`
 check('quote follows edited labour rate (±$2)', Math.abs(price60 - expected60) <= 2);
 await page.getByRole('button', { name: 'Close' }).click();
 await page.reload({ waitUntil: 'networkidle' });
+await reopenProject(page);
 await page.getByTitle('Your rates — labour, paint, margin').click();
 const labourAfter = await page.locator('.pb-field', { hasText: 'Loaded labour rate' }).locator('input').inputValue();
 check('price book persists across reload', labourAfter === '60');
@@ -131,8 +132,7 @@ check('reset restores 55', labourReset === '55');
 await page.getByRole('button', { name: 'Done' }).click();
 
 // reopen the plan after the reload
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+await openPdf(page, PDF);
 await page.fill('.page-input', '5');
 await page.locator('.page-input').blur();
 await page.waitForTimeout(600);

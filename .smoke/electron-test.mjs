@@ -21,8 +21,8 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
-await page.waitForSelector('.welcome-title', { timeout: 30000 });
-console.log('booted: welcome screen visible');
+await page.waitForSelector('.dash-greeting', { timeout: 30000 });
+console.log('booted: dashboard visible');
 
 // --- open a PDF via the file input ---
 await page.setInputFiles('input[type=file]', PDF);

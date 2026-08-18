@@ -47,8 +47,18 @@ import Toolbar from './components/Toolbar';
 import TitleBar from './components/TitleBar';
 import Viewer, { type ViewerHandle, type PageRaster } from './components/Viewer';
 import StepBar from './components/StepBar';
-import Welcome from './components/Welcome';
+import Dashboard from './components/Dashboard';
+import NewProjectModal from './components/NewProjectModal';
+import PagePickerModal from './components/PagePickerModal';
 import MeasurementsPanel, { formatArea } from './components/MeasurementsPanel';
+import {
+  deleteProject,
+  loadProjects,
+  loadPdfBytes,
+  savePdfBytes,
+  saveProjects,
+  type ProjectMeta,
+} from './pdf/projectStore';
 import QuickAreaCard, { type QaValues } from './components/QuickAreaCard';
 import OpeningPopover from './components/OpeningPopover';
 import PriceBookModal from './components/PriceBookModal';
@@ -135,6 +145,15 @@ export default function App() {
   const [priceBook, setPriceBook] = useState<PriceBook>(() => loadPriceBook());
   const [priceBookOpen, setPriceBookOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  // ---------- projects / dashboard ----------
+  const [projects, setProjects] = useState<ProjectMeta[]>(() => loadProjects());
+  const [currentProject, setCurrentProject] = useState<ProjectMeta | null>(null);
+  const [selectedPages, setSelectedPages] = useState<number[]>([]); // original 0-based indices
+  const [newProjectFile, setNewProjectFile] = useState<File | null>(null);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [pendingPlan, setPendingPlan] = useState<LoadedPlan | null>(null);
+  const [showPagePicker, setShowPagePicker] = useState<'create' | 'edit' | null>(null);
+  const [deletingProject, setDeletingProject] = useState<ProjectMeta | null>(null);
   const [firstPointPlaced, setFirstPointPlaced] = useState(false);
   const [toolHint, setToolHint] = useState<'measure' | 'quickArea' | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -199,15 +218,17 @@ export default function App() {
     setFirstPointPlaced(false);
   }, []);
 
-  // ---------- file opening ----------
+  // ---------- file opening / project flow ----------
   const openPlan = useCallback(
-    async (next: LoadedPlan) => {
+    async (next: LoadedPlan, pages: number[], project: ProjectMeta | null) => {
       if (plan) await destroyPlan(plan);
       imgCache.current.clear();
       setPlan(next);
       setScales(loadScales(next.fingerprint));
       setMeasurements(loadMeasurements(next.fingerprint));
-      setPageNum(1);
+      setSelectedPages(pages);
+      setCurrentProject(project);
+      setPageNum((pages[0] ?? 0) + 1);
       setMode('pan');
       setFlow({ step: 'idle' });
       setToolHint(null);
@@ -215,19 +236,142 @@ export default function App() {
       setQa(null);
       setQaValues(null);
       resetInteraction();
-      showToast(`Opened ${next.name} — ${next.numPages} pages.`);
+      showToast(`Opened ${next.name} — ${pages.length} of ${next.numPages} pages.`);
     },
     [plan, showToast, resetInteraction],
   );
 
-  const openFile = useCallback(
-    async (file: File) => {
+  /** Any incoming PDF (picker, drop, argv) starts the new-project flow. */
+  const startProjectFlow = useCallback((file: File) => {
+    setNewProjectFile(file);
+    setShowNewProject(true);
+  }, []);
+
+  const openFile = startProjectFlow;
+
+  /** Step A done → load the PDF and go to the page picker. */
+  const createProjectDetails = useCallback(
+    async (name: string, company: string, notes: string) => {
+      if (!newProjectFile) return;
       setLoading(true);
       try {
-        await openPlan(await loadPlanFile(file));
+        const next = await loadPlanFile(newProjectFile);
+        setPendingPlan(next);
+        (window as unknown as { __npMeta?: object }).__npMeta = { name, company, notes };
+        setShowNewProject(false);
+        setShowPagePicker('create');
       } catch (err) {
         console.error(err);
         showToast('That file wouldn’t open. Make sure it’s a PDF and try again.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [newProjectFile, showToast],
+  );
+
+  /** Page picker confirmed → create the project, store the PDF, open it. */
+  const confirmPagePicker = useCallback(
+    async (pages: number[]) => {
+      if (showPagePicker === 'create' && pendingPlan) {
+        const meta = (window as unknown as { __npMeta?: { name: string; company: string; notes: string } }).__npMeta;
+        if (!meta) return;
+        setLoading(true);
+        try {
+          const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          // thumbnail: first selected page, small
+          let thumbDataUrl: string | undefined;
+          try {
+            const page = await pendingPlan.doc.getPage(pages[0] + 1);
+            const vp0 = page.getViewport({ scale: 1 });
+            const sc = 320 / vp0.width;
+            const c = document.createElement('canvas');
+            c.width = 320;
+            c.height = Math.round(vp0.height * sc);
+            const ctx = c.getContext('2d');
+            if (ctx) {
+              await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: sc }), background: '#ffffff' }).promise;
+              thumbDataUrl = c.toDataURL('image/jpeg', 0.7);
+            }
+          } catch { /* thumb optional */ }
+          const project: ProjectMeta = {
+            id,
+            name: meta.name,
+            company: meta.company,
+            notes: meta.notes,
+            fingerprint: pendingPlan.fingerprint,
+            pages,
+            numPages: pendingPlan.numPages,
+            thumbDataUrl,
+            createdAt: Date.now(),
+            modifiedAt: Date.now(),
+          };
+          // keep the bytes safe regardless of where the original file moves
+          const bytes = await pendingPlan.doc.getData();
+          await savePdfBytes(id, bytes.buffer as ArrayBuffer);
+          const next = [...loadProjects(), project];
+          saveProjects(next);
+          setProjects(next);
+          setShowPagePicker(null);
+          setPendingPlan(null);
+          setNewProjectFile(null);
+          await openPlan(pendingPlan, pages, project);
+        } catch (err) {
+          console.error(err);
+          showToast('Something went wrong creating that project. Try again.');
+        } finally {
+          setLoading(false);
+        }
+      } else if (showPagePicker === 'edit' && plan && currentProject) {
+        // Change the page subset mid-project — scales/measurements are keyed
+        // by ORIGINAL page index, so nothing is disturbed.
+        const sorted = [...pages].sort((a, b) => a - b);
+        const updated = { ...currentProject, pages: sorted, modifiedAt: Date.now() };
+        const next = loadProjects().map((p) => (p.id === updated.id ? updated : p));
+        saveProjects(next);
+        setProjects(next);
+        setCurrentProject(updated);
+        setSelectedPages(sorted);
+        if (!sorted.includes(pageNum - 1)) setPageNum(sorted[0] + 1);
+        setShowPagePicker(null);
+        resetInteraction();
+        showToast(`Now showing ${sorted.length} of ${plan.numPages} pages.`);
+      }
+    },
+    [showPagePicker, pendingPlan, plan, currentProject, pageNum, openPlan, showToast, resetInteraction],
+  );
+
+  /** Back to the dashboard — everything is persisted, so no confirm. */
+  const [homeTick, setHomeTick] = useState(0);
+  const goHome = useCallback(async () => {
+    if (plan) await destroyPlan(plan);
+    setPlan(null);
+    setCurrentProject(null);
+    setSelectedPages([]);
+    setMode('pan');
+    setFlow({ step: 'idle' });
+    setToolHint(null);
+    setSelectedId(null);
+    setQa(null);
+    setQaValues(null);
+    setPendingOpening(null);
+    setHomeTick((n) => n + 1); // dashboard stats recompute from storage
+    resetInteraction();
+  }, [plan, resetInteraction]);
+
+  /** Reopen a project from the dashboard: bytes come from IndexedDB. */
+  const openProject = useCallback(
+    async (id: string) => {
+      const project = loadProjects().find((p) => p.id === id);
+      if (!project) return;
+      setLoading(true);
+      try {
+        const bytes = await loadPdfBytes(id);
+        if (!bytes) throw new Error('PDF bytes missing');
+        await openPlan(await loadPlan(project.name + '.pdf', bytes), project.pages, project);
+      } catch (err) {
+        console.error(err);
+        showToast('Couldn’t reopen that project — its PDF data is missing.');
       } finally {
         setLoading(false);
       }
@@ -239,21 +383,21 @@ export default function App() {
   useEffect(() => {
     const bridge = window.painttakeoff;
     if (!bridge || typeof bridge.onOpenPdfPath !== 'function') return;
-    bridge.onOpenPdfPath(async (p) => {
-      setLoading(true);
-      try {
-        const bytes = await bridge.readPdf(p);
-        const name = p.split(/[\\/]/).pop() ?? p;
-        const data = new Uint8Array(bytes).buffer; // own copy, exact size
-        await openPlan(await loadPlan(name, data));
-      } catch (err) {
-        console.error(err);
-        showToast('That file wouldn’t open. Make sure it’s a PDF and try again.');
-      } finally {
-        setLoading(false);
-      }
+    bridge.onOpenPdfPath((p) => {
+      const name = p.split(/[\\/]/).pop() ?? p;
+      // Reuse the flow with a File built from disk bytes.
+      bridge
+        .readPdf(p)
+        .then((bytes) => {
+          const data = new Uint8Array(bytes).buffer;
+          startProjectFlow(new File([data], name, { type: 'application/pdf' }));
+        })
+        .catch((err) => {
+          console.error(err);
+          showToast('That file wouldn’t open. Make sure it’s a PDF and try again.');
+        });
     });
-  }, [openPlan, showToast]);
+  }, [startProjectFlow, showToast]);
 
   // Drag & drop anywhere on the window.
   useEffect(() => {
@@ -270,7 +414,7 @@ export default function App() {
       const file = Array.from(e.dataTransfer?.files ?? []).find(
         (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'),
       );
-      if (file) void openFile(file);
+      if (file) openFile(file);
       else if ((e.dataTransfer?.files.length ?? 0) > 0)
         showToast('That’s not a PDF. Drop the plan file itself.');
     };
@@ -828,12 +972,32 @@ export default function App() {
   const gotoPage = useCallback(
     (n: number) => {
       if (!plan) return;
-      const clamped = Math.min(plan.numPages, Math.max(1, n));
-      setPageNum(clamped);
+      // Page numbers navigate the SELECTED subset (1-based position).
+      if (selectedPages.length > 0) {
+        const pos = Math.min(selectedPages.length, Math.max(1, n));
+        setPageNum(selectedPages[pos - 1] + 1);
+      } else {
+        const clamped = Math.min(plan.numPages, Math.max(1, n));
+        setPageNum(clamped);
+      }
       setSelectedId(null);
       setPendingOpening(null);
     },
-    [plan],
+    [plan, selectedPages],
+  );
+
+  // prev/next move within the selected subset, in original order
+  const pageOffset = useCallback(
+    (delta: number) => {
+      if (!plan) return;
+      const pages = selectedPages.length > 0 ? selectedPages : Array.from({ length: plan.numPages }, (_, i) => i);
+      const pos = pages.indexOf(pageNum - 1);
+      const next = pos === -1 ? 0 : Math.min(pages.length - 1, Math.max(0, pos + delta));
+      setPageNum(pages[next] + 1);
+      setSelectedId(null);
+      setPendingOpening(null);
+    },
+    [plan, selectedPages, pageNum],
   );
 
   const changeMode = useCallback(
@@ -903,10 +1067,10 @@ export default function App() {
       }
       switch (e.key) {
         case 'ArrowLeft':
-          gotoPage(pageNum - 1);
+          pageOffset(-1);
           break;
         case 'ArrowRight':
-          gotoPage(pageNum + 1);
+          pageOffset(1);
           break;
         case '+':
         case '=':
@@ -961,7 +1125,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [pageNum, plan, scale, flow.step, mode, selectedId, liveMeasure, gotoPage, changeMode, resetInteraction, deleteMeasurement, undoLastMeasurement]);
+  }, [pageNum, plan, scale, flow.step, mode, selectedId, liveMeasure, gotoPage, pageOffset, changeMode, resetInteraction, deleteMeasurement, undoLastMeasurement]);
 
   // ---------- overlay images for Quick Area ----------
   const getImage = useCallback((url: string): HTMLImageElement => {
@@ -972,6 +1136,41 @@ export default function App() {
     img.src = url;
     imgCache.current.set(url, img);
     return img;
+  }, []);
+
+  // ---------- dashboard project stats (net wall area per project) ----------
+  const projectStats = useMemo(() => {
+    const out: Record<string, string | null> = {};
+    for (const p of projects) {
+      const map = loadMeasurements(p.fingerprint);
+      let netM2 = 0;
+      for (const [pg, items] of Object.entries(map)) {
+        const pageIdx = parseInt(pg, 10) - 1; // measurements keyed 1-based
+        if (!p.pages.includes(pageIdx)) continue;
+        netM2 += pageTotals(items, defaultHeightM, loadDeductOpenings(p.fingerprint, parseInt(pg, 10))).netWallM2;
+      }
+      out[p.id] = netM2 > 0 ? `${formatArea(netM2, units)} net walls` : null;
+    }
+    return out;
+  }, [projects, defaultHeightM, units, homeTick]);
+
+  // dashboard: just the project count — everything else was removed per user.
+  const dashStats = useMemo(() => ({ projects: projects.length }), [projects]);
+
+  // "What's new" card: show once per version change (not on first install)
+  const [whatsNew, setWhatsNew] = useState<boolean>(() => {
+    try {
+      const seen = localStorage.getItem('pt:v1:last-seen-version');
+      return seen !== null && seen !== pkg.version;
+    } catch {
+      return false;
+    }
+  });
+  const dismissWhatsNew = useCallback(() => {
+    setWhatsNew(false);
+    try {
+      localStorage.setItem('pt:v1:last-seen-version', pkg.version);
+    } catch { /* non-fatal */ }
   }, []);
 
   // ---------- quote ----------
@@ -1159,10 +1358,11 @@ export default function App() {
           e.target.value = '';
         }}
       />
+      {plan && (
       <Toolbar
         plan={plan}
-        pageNum={pageNum}
-        numPages={plan?.numPages ?? 0}
+        pageNum={plan && selectedPages.length > 0 ? selectedPages.indexOf(pageNum - 1) + 1 : pageNum}
+        numPages={plan && selectedPages.length > 0 ? selectedPages.length : (plan?.numPages ?? 0)}
         onOpenFile={(f) => void openFile(f)}
         onPageChange={gotoPage}
         zoom={view.zoom}
@@ -1192,8 +1392,12 @@ export default function App() {
         }
         onOpenPriceBook={() => setPriceBookOpen(true)}
         onOpenQuote={() => setQuoteOpen(true)}
+        onOpenPages={() => setShowPagePicker('edit')}
+        onGoHome={() => void goHome()}
       />
-      {stepBar}
+      )}
+      {plan && stepBar}
+      {plan && (
       <div className="viewer-wrap">
         <Viewer
           ref={viewerRef}
@@ -1228,7 +1432,6 @@ export default function App() {
           finishSignal={finishSignal}
           chainUndoSignal={chainUndoSignal}
         />
-        {!plan && <Welcome onOpen={() => fileInputRef.current?.click()} />}
         {pendingOpening && (
           <OpeningPopover
             x={pendingOpening.x * view.zoom + view.panX + 14}
@@ -1299,6 +1502,25 @@ export default function App() {
           />
         )}
       </div>
+      )}
+      {!plan && (
+        <Dashboard
+          projects={projects}
+          projectStats={projectStats}
+          stats={dashStats}
+          whatsNew={whatsNew}
+          onDismissWhatsNew={dismissWhatsNew}
+          onNewProject={() => {
+            setNewProjectFile(null);
+            setShowNewProject(true);
+          }}
+          onOpenProject={(id) => void openProject(id)}
+          onDeleteProject={(id) => {
+            const p = projects.find((x) => x.id === id);
+            if (p) setDeletingProject(p);
+          }}
+        />
+      )}
       <div className="statusbar">
         <span className="hint">{loading ? 'Opening your plan…' : ''}</span>
         {toast && <span className="toast">{toast}</span>}
@@ -1376,6 +1598,53 @@ export default function App() {
         />
       )}
       {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
+      {showNewProject && (
+        <NewProjectModal
+          file={newProjectFile}
+          onPickFile={() => fileInputRef.current?.click()}
+          onCancel={() => {
+            setShowNewProject(false);
+            setNewProjectFile(null);
+          }}
+          onCreate={(name, company, notes) => void createProjectDetails(name, company, notes)}
+        />
+      )}
+      {showPagePicker && (pendingPlan || plan) && (
+        <PagePickerModal
+          doc={showPagePicker === 'create' ? pendingPlan!.doc : plan!.doc}
+          initial={showPagePicker === 'create' ? new Set(Array.from({ length: (pendingPlan ?? plan)!.numPages }, (_, i) => i)) : new Set(selectedPages)}
+          title={showPagePicker === 'create' ? 'Which pages do you need?' : 'Pages in this project'}
+          confirmLabel={showPagePicker === 'create' ? 'Start with {n} of {total} pages' : 'Show {n} of {total} pages'}
+          onConfirm={(pages) => void confirmPagePicker(pages)}
+          onCancel={() => setShowPagePicker(null)}
+        />
+      )}
+      {deletingProject && (
+        <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setDeletingProject(null)}>
+          <div className="modal">
+            <div className="modal-title">Delete project?</div>
+            <p className="modal-text">
+              “{deletingProject.name}” and its measurements go with it. This can’t be undone.
+            </p>
+            <div className="modal-actions">
+              <button className="tool" onClick={() => setDeletingProject(null)}>
+                Cancel
+              </button>
+              <button
+                className="tool danger-button"
+                onClick={() => {
+                  deleteProject(deletingProject.id);
+                  setProjects(loadProjects());
+                  setDeletingProject(null);
+                  showToast('Project deleted.');
+                }}
+              >
+                Delete project
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {priceBookOpen && (
         <PriceBookModal
           book={priceBook}

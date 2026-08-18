@@ -2,6 +2,7 @@
  * Uses the friend set (metric, 1:75 floor plan on page 5).
  */
 import { chromium } from 'playwright-core';
+import { openPdf, reopenProject } from './helpers.mjs';
 
 const EXE =
   'C:/Users/Nicholas/AppData/Local/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-win64/chrome-headless-shell.exe';
@@ -23,8 +24,7 @@ page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 await page.goto(APP, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+  await openPdf(page, PDF);
 await page.waitForTimeout(500);
 const box = await page.locator('.viewer').boundingBox();
 const cx = box.x + 700, cy = box.y + 380;
@@ -116,8 +116,7 @@ check('measurements restored after page flip', (await page.locator('.mp-row').co
 
 // reload persistence
 await page.reload({ waitUntil: 'networkidle' });
-await page.setInputFiles('input[type=file]', PDF);
-await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout: 60000 });
+  await reopenProject(page);
 check('measurements restored after reload', (await page.locator('.mp-row').count()) === 2);
 check('rename persisted', (await page.locator('.mp-label').first().textContent()) === 'North wall');
 

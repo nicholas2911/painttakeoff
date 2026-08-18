@@ -12,10 +12,12 @@ import {
   DoorIcon,
   FitIcon,
   FolderIcon,
+  HomeIcon,
   ListIcon,
   MeasureIcon,
   MoonIcon,
   MoveIcon,
+  PagesIcon,
   QuestionIcon,
   QuoteIcon,
   RulerIcon,
@@ -54,6 +56,8 @@ interface ToolbarProps {
   onTogglePanel(): void;
   onOpenPriceBook(): void;
   onOpenQuote(): void;
+  onOpenPages(): void;
+  onGoHome(): void;
 }
 
 export default function Toolbar(props: ToolbarProps) {
@@ -104,6 +108,10 @@ export default function Toolbar(props: ToolbarProps) {
   return (
     <div className="toolbar">
       <div className="tb-group">
+        <button className="tool" onClick={props.onGoHome} title="Back to your projects">
+          <HomeIcon />
+          <span>Home</span>
+        </button>
         <button className="tool big-tool" onClick={() => fileRef.current?.click()}>
           <FolderIcon />
           <span>Open Plan</span>
@@ -204,6 +212,10 @@ export default function Toolbar(props: ToolbarProps) {
         <button className="tool" disabled={!plan} onClick={props.onOpenQuote} title="See your quote">
           <QuoteIcon />
           <span>Quote</span>
+        </button>
+        <button className="tool" disabled={!plan} onClick={props.onOpenPages} title="Choose which pages to work on">
+          <PagesIcon />
+          <span>Pages</span>
         </button>
         <button className="tool" onClick={props.onOpenPriceBook} title="Your rates — labour, paint, margin">
           <DollarIcon />

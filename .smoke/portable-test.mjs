@@ -47,8 +47,8 @@ const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
-await page.waitForSelector('.welcome-title', { timeout: 30000 });
-console.log('booted: welcome screen visible, title =', await page.title());
+await page.waitForSelector('.dash-greeting', { timeout: 30000 });
+console.log('booted: dashboard visible, title =', await page.title());
 
 await page.setInputFiles('input[type=file]', PDF);
 await page.waitForFunction(() => {
