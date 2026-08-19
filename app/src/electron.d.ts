@@ -17,6 +17,7 @@ export interface PaintTakeoffBridge {
     restart(): void;
     checkNow(): Promise<{ ok: boolean; latest?: boolean; busy?: boolean }>;
   };
+  printPdf?(fileName: string): Promise<string>;
 }
 
 declare global {

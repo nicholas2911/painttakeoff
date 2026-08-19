@@ -15,6 +15,7 @@ function Row(props: { label: string; value: string; strong?: boolean }) {
 export default function QuoteView(props: {
   quote: Quote;
   onExport(): void;
+  onCreateInvoice(): void;
   onClose(): void;
 }) {
   const q = props.quote;
@@ -92,6 +93,9 @@ export default function QuoteView(props: {
         <div className="modal-actions">
           <button className="tool" onClick={props.onClose}>
             Close
+          </button>
+          <button className="tool" onClick={props.onCreateInvoice}>
+            Create invoice
           </button>
           <button className="tool go-button" onClick={props.onExport}>
             Export to Excel

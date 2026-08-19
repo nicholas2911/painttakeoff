@@ -63,6 +63,16 @@ import QuickAreaCard, { type QaValues } from './components/QuickAreaCard';
 import OpeningPopover from './components/OpeningPopover';
 import PriceBookModal from './components/PriceBookModal';
 import QuoteView from './components/QuoteView';
+import CardActionSheet from './components/CardActionSheet';
+import InvoiceView from './components/InvoiceView';
+import {
+  loadInvoiceDraft,
+  nextInvoiceNumber,
+  peekInvoiceNumber,
+  saveInvoiceDraft,
+  type InvoiceDraft,
+  type InvoiceLine,
+} from './invoice/invoiceModel';
 import { loadPriceBook, savePriceBook, type PriceBook } from './quote/priceBook';
 import { computeQuote, pageTotals } from './quote/quote';
 import { exportQuoteXlsx } from './quote/excel';
@@ -154,6 +164,9 @@ export default function App() {
   const [pendingPlan, setPendingPlan] = useState<LoadedPlan | null>(null);
   const [showPagePicker, setShowPagePicker] = useState<'create' | 'edit' | null>(null);
   const [deletingProject, setDeletingProject] = useState<ProjectMeta | null>(null);
+  const [cardAction, setCardAction] = useState<ProjectMeta | null>(null);
+  const [editingProject, setEditingProject] = useState<ProjectMeta | null>(null);
+  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft | null>(null);
   const [firstPointPlaced, setFirstPointPlaced] = useState(false);
   const [toolHint, setToolHint] = useState<'measure' | 'quickArea' | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -1204,6 +1217,102 @@ export default function App() {
     return computeQuote(totals, priceBook);
   }, [quotePages, priceBook]);
 
+  // ---------- card actions + invoice ----------
+  const openProjectWithQuote = useCallback(
+    async (id: string) => {
+      await openProject(id);
+      setQuoteOpen(true);
+    },
+    [openProject],
+  );
+
+  const saveProjectEdit = useCallback(
+    (name: string, company: string, notes: string) => {
+      if (!editingProject) return;
+      const updated = { ...editingProject, name, company, notes, modifiedAt: Date.now() };
+      const next = loadProjects().map((p) => (p.id === updated.id ? updated : p));
+      saveProjects(next);
+      setProjects(next);
+      setEditingProject(null);
+      showToast('Project updated.');
+    },
+    [editingProject, showToast],
+  );
+
+  /** Build an invoice draft from the current quote + project. */
+  const startInvoice = useCallback(() => {
+    if (!currentProject) return;
+    const existing = loadInvoiceDraft(currentProject.id);
+    setQuoteOpen(false);
+    if (existing) {
+      setInvoiceDraft(existing);
+      return;
+    }
+    const round2 = (x: number) => Math.round(x * 100) / 100;
+    const lines: InvoiceLine[] = [];
+    if (quote.walls.qty > 0)
+      lines.push({
+        description: `Walls — prep & paint, ${priceBook.coats} coats`,
+        qty: `${Math.round(quote.walls.qty).toLocaleString()} SF`,
+        amount: round2(quote.walls.price),
+      });
+    if (quote.ceilings.qty > 0)
+      lines.push({
+        description: 'Ceilings — paint',
+        qty: `${Math.round(quote.ceilings.qty).toLocaleString()} SF`,
+        amount: round2(quote.ceilings.price),
+      });
+    if (quote.trim.qty > 0)
+      lines.push({
+        description: 'Trim / baseboard',
+        qty: `${Math.round(quote.trim.qty).toLocaleString()} LF`,
+        amount: round2(quote.trim.price),
+      });
+    if (quote.heavyPrepCost > 0)
+      lines.push({
+        description: 'Heavy prep',
+        qty: '',
+        amount: round2(quote.heavyPrepCost * (1 + priceBook.margin)),
+      });
+    const due = new Date(Date.now() + 30 * 86400000);
+    setInvoiceDraft({
+      invoiceNumber: peekInvoiceNumber(),
+      date: new Date().toISOString().slice(0, 10),
+      dueDate: due.toISOString().slice(0, 10),
+      fromCompany: currentProject.company,
+      projectName: currentProject.name,
+      lines,
+      taxRows: [{ label: 'HST', rate: 0.13, on: true }],
+      notes: 'Payment due within 30 days. Thank you for your business!',
+      subtotalOverride: null,
+      totalOverride: null,
+    });
+  }, [currentProject, quote, priceBook]);
+
+  const saveInvoicePdf = useCallback(async () => {
+    if (!invoiceDraft || !currentProject) return;
+    // The invoice number commits when the PDF is produced.
+    const committed = invoiceDraft.invoiceNumber;
+    const base = currentProject.name.replace(/[^a-z0-9-_ ]/gi, '').trim() || 'invoice';
+    const fileName = `${base}-invoice-${committed}.pdf`;
+    const bridge = window.painttakeoff;
+    if (bridge?.printPdf) {
+      try {
+        const out = await bridge.printPdf(fileName);
+        showToast(`Invoice saved to ${out}`);
+      } catch (err) {
+        console.error(err);
+        showToast('Couldn’t save the PDF — try again.');
+        return;
+      }
+    } else {
+      window.print();
+    }
+    // Only now does the counter advance, so the next invoice gets the next number.
+    nextInvoiceNumber();
+  }, [invoiceDraft, currentProject, showToast]);
+
+
   const handleExportQuote = useCallback(() => {
     if (!plan) return;
     const base = plan.name.replace(/\.pdf$/i, '').replace(/[^a-z0-9-_ ]/gi, '').trim() || 'quote';
@@ -1514,7 +1623,7 @@ export default function App() {
             setNewProjectFile(null);
             setShowNewProject(true);
           }}
-          onOpenProject={(id) => void openProject(id)}
+          onOpenProject={(id) => setCardAction(projects.find((x) => x.id === id) ?? null)}
           onDeleteProject={(id) => {
             const p = projects.find((x) => x.id === id);
             if (p) setDeletingProject(p);
@@ -1659,7 +1768,50 @@ export default function App() {
         <QuoteView
           quote={quote}
           onExport={handleExportQuote}
+          onCreateInvoice={startInvoice}
           onClose={() => setQuoteOpen(false)}
+        />
+      )}
+      {cardAction && (
+        <CardActionSheet
+          project={cardAction}
+          onOpen={() => {
+            void openProject(cardAction.id);
+            setCardAction(null);
+          }}
+          onGoToQuote={() => {
+            void openProjectWithQuote(cardAction.id);
+            setCardAction(null);
+          }}
+          onEdit={() => {
+            setEditingProject(cardAction);
+            setCardAction(null);
+          }}
+          onDelete={() => {
+            setDeletingProject(cardAction);
+            setCardAction(null);
+          }}
+          onClose={() => setCardAction(null)}
+        />
+      )}
+      {editingProject && (
+        <NewProjectModal
+          file={null}
+          edit={{ name: editingProject.name, company: editingProject.company, notes: editingProject.notes }}
+          onPickFile={() => fileInputRef.current?.click()}
+          onCancel={() => setEditingProject(null)}
+          onCreate={saveProjectEdit}
+        />
+      )}
+      {invoiceDraft && currentProject && (
+        <InvoiceView
+          draft={invoiceDraft}
+          onChange={(d) => {
+            setInvoiceDraft(d);
+            saveInvoiceDraft(currentProject.id, d);
+          }}
+          onSavePdf={() => void saveInvoicePdf()}
+          onClose={() => setInvoiceDraft(null)}
         />
       )}
     </div>

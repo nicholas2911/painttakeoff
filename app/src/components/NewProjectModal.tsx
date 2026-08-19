@@ -1,27 +1,30 @@
 import { useState } from 'react';
 import { FolderIcon } from './icons';
 
-/** New project: name / company / notes / the plan PDF. One calm modal. */
+/** New project: name / company / notes / the plan PDF. One calm modal.
+ *  In edit mode (existing project), the PDF section is hidden. */
 export default function NewProjectModal(props: {
   file: File | null;
+  edit?: { name: string; company: string; notes: string };
   onPickFile(): void;
   onCancel(): void;
   onCreate(name: string, company: string, notes: string): void;
 }) {
   const [name, setName] = useState(() =>
-    props.file ? props.file.name.replace(/\.pdf$/i, '') : '',
+    props.edit ? props.edit.name : props.file ? props.file.name.replace(/\.pdf$/i, '') : '',
   );
-  const [company, setCompany] = useState('');
-  const [notes, setNotes] = useState('');
+  const [company, setCompany] = useState(props.edit?.company ?? '');
+  const [notes, setNotes] = useState(props.edit?.notes ?? '');
+  const editing = !!props.edit;
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onCancel()}>
       <div className="modal">
-        <div className="modal-title">New project</div>
+        <div className="modal-title">{editing ? 'Edit project' : 'New project'}</div>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (name.trim() && props.file) props.onCreate(name.trim(), company.trim(), notes.trim());
+            if (name.trim() && (editing || props.file)) props.onCreate(name.trim(), company.trim(), notes.trim());
           }}
         >
           <label className="np-field">
@@ -53,6 +56,7 @@ export default function NewProjectModal(props: {
               onChange={(e) => setNotes(e.target.value)}
             />
           </label>
+          {!editing && (
           <div className="np-file">
             {props.file ? (
               <span className="np-file-name">📄 {props.file.name}</span>
@@ -62,12 +66,13 @@ export default function NewProjectModal(props: {
               </button>
             )}
           </div>
+          )}
           <div className="modal-actions">
             <button type="button" className="tool" onClick={props.onCancel}>
               Cancel
             </button>
-            <button type="submit" className="tool go-button" disabled={!name.trim() || !props.file}>
-              Create project
+            <button type="submit" className="tool go-button" disabled={!name.trim() || (!editing && !props.file)}>
+              {editing ? 'Save changes' : 'Create project'}
             </button>
           </div>
         </form>

@@ -146,7 +146,7 @@ toggle; a "?" button lists the shortcuts.
   calibration.
 - Right-click or Esc cancels any in-progress action.
 
-### Quoting (Price Book → Quote → Excel)
+### Quoting (Price Book → Quote → Excel → Invoice)
 - **Price Book** (`$` button in the toolbar): every quoting rate, editable
   and persisted (`pt:v1:pricebook`) — loaded labour rate, production
   rates (cut & roll / roll only / spray / textured), second-coat factor,
@@ -167,6 +167,18 @@ toggle; a "?" button lists the shortcuts.
   row per measurement per page + page totals) and Quote (line items,
   cross-metrics, price-book snapshot for audit), named
   `<plan>-quote-<date>.xlsx`.
+- **Create invoice** (from the Quote view): a prefilled, fully editable
+  invoice — project/company header with logo slot, auto-incrementing
+  invoice number (INV-0001…), line items from the quote breakdown,
+  subtotal, configurable tax rows (any label + rate %; one "HST 13%" row
+  prefilled as a starting point — rows can be toggled off, deleted, or
+  added, e.g. GST 5% + PST 7%), total, and a payment-terms note. Everything is click-to-edit; totals auto-update from the lines and
+  manual overrides are flagged "(edited)". Save as PDF writes a clean
+  letter-size PDF to Downloads in the desktop app (browser print on web).
+  The last draft per project persists (`pt:v1:invoices:*`); the counter is
+  `pt:v1:invoice-counter`.
+- **Project cards** on the dashboard open an action sheet: **Open project**,
+  **Go to quote**, **Edit details** (name/company/notes), **Delete project**.
 ### Measurements (lengths, ceilings, rooms, openings)
 - **Measure** mode (`M`): chain measuring with a kind picker in the
   guidance bar — **Wall** (default), **Trim** (length only, per LF), or

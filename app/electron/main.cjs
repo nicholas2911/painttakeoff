@@ -113,6 +113,21 @@ ipcMain.handle('read-pdf', async (_event, p) => {
   return fsp.readFile(p); // Buffer -> Uint8Array in the renderer
 });
 
+// Print the invoice view to a PDF in the user's Downloads folder.
+ipcMain.handle('print-pdf', async (event, fileName) => {
+  const win = winFrom(event);
+  if (!win) throw new Error('no window');
+  const data = await win.webContents.printToPDF({
+    pageSize: 'Letter',
+    printBackground: true,
+    margins: { marginType: 'none' },
+  });
+  const name = typeof fileName === 'string' && /[\w-]+\.pdf$/i.test(fileName) ? fileName : 'invoice.pdf';
+  const outPath = path.join(app.getPath('downloads'), name);
+  await fsp.writeFile(outPath, data);
+  return outPath;
+});
+
 // ---------- auto-updates (GitHub Releases) ----------
 // Packaged mode only, never in dev. MANUAL flow: the app checks quietly
 // (autoDownload=false) and the user drives download + restart from a

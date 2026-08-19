@@ -16,6 +16,8 @@ export async function openPdf(page, pdfPath, { timeout = 60000 } = {}) {
 export async function reopenProject(page, { timeout = 60000 } = {}) {
   await page.waitForSelector('.dash-card', { timeout: 15000 });
   await page.locator('.dash-card').first().click();
+  // card click opens the action sheet (v0.7) — Open project continues
+  await page.getByRole('button', { name: 'Open project' }).click();
   await page.waitForFunction(() => document.querySelector('.pdf-canvas')?.width > 400, null, { timeout });
   await page.waitForTimeout(500);
 }

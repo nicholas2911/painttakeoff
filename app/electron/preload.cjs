@@ -43,4 +43,8 @@ contextBridge.exposeInMainWorld('painttakeoff', {
       return ipcRenderer.invoke('update-check-now');
     },
   },
+  /** Print the current view (invoice) to a PDF in Downloads. Returns the path. */
+  printPdf(fileName) {
+    return ipcRenderer.invoke('print-pdf', fileName);
+  },
 });
