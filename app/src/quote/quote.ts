@@ -1,6 +1,29 @@
 import type { Measurement, OpeningMeasurement } from '../measure/measureStore';
 import type { PriceBook } from './priceBook';
 
+const OVERRIDES_PREFIX = 'pt:v1:quoteoverrides:';
+const ADDONS_PREFIX = 'pt:v1:addons:';
+
+/** Per-project override of select Price Book fields — "just this quote",
+ *  never written back to the saved (global) Price Book. */
+export function loadQuoteOverrides(projectId: string): Partial<PriceBook> {
+  try {
+    const raw = localStorage.getItem(`${OVERRIDES_PREFIX}${projectId}`);
+    if (raw) return JSON.parse(raw) as Partial<PriceBook>;
+  } catch {
+    /* fall through to no overrides */
+  }
+  return {};
+}
+
+export function saveQuoteOverrides(projectId: string, overrides: Partial<PriceBook>): void {
+  try {
+    localStorage.setItem(`${OVERRIDES_PREFIX}${projectId}`, JSON.stringify(overrides));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 /**
  * Quote engine — implements ESTIMATING-SPEC.md's Core quantity model.
  * Quantities are stored in meters/m² internally; the rate tables are
@@ -80,12 +103,27 @@ export interface Quote {
   floorSFMeasured: number;
   cross: {
     pricePerWallSF: number | null;
+    /** Price per SF of wall, per coat — null in Simple $/SF wall mode,
+     *  where there's no discrete per-coat cost to isolate. */
+    pricePerWallSFPerCoat: number | null;
     pricePerFloorSF: number | null;
     floorAssumption: string;
     labourShare: number | null;
     gallons: number;
   };
   warnings: string[];
+}
+
+/** Walls only: detailed labour+material buildup, or a flat all-in $/SF. */
+function wallMathLinear(netSF: number, pb: PriceBook): QuoteCategory {
+  if (netSF === 0) {
+    return { qty: 0, gallons: 0, hours: 0, labourCost: 0, materialCost: 0, cost: 0, price: 0 };
+  }
+  if (pb.wallPricingMode === 'simple') {
+    const price = netSF * pb.simpleWallRate;
+    return { qty: netSF, gallons: 0, hours: 0, labourCost: 0, materialCost: 0, cost: price, price };
+  }
+  return paintMathLinear(netSF, pb.production[pb.wallMethod], pb, pb.wallMethod === 'spray');
 }
 
 function paintMath(
@@ -143,7 +181,7 @@ export function computeQuote(
   const trimLF = totals.trimM * FT_PER_M;
   const floorSFMeasured = totals.floorM2 * SQFT_PER_M2;
 
-  const walls = paintMath(netWallSF, pb.production[pb.wallMethod], pb, pb.wallMethod === 'spray');
+  const walls = wallMathLinear(netWallSF, pb);
   const ceilings = paintMath(ceilingSF, pb.production.rollOnly, pb, false);
   const trimCost = trimLF * pb.trimRate;
   const trim: QuoteCategory = {
@@ -163,6 +201,12 @@ export function computeQuote(
   const totalMaterialCost = walls.materialCost + ceilings.materialCost;
 
   const pricePerWallSF = netWallSF > 0 ? totalPrice / netWallSF : null;
+  const coats = Math.max(1, Math.round(pb.coats));
+  // Wall-only price per coat — a standard painter sanity check, distinct
+  // from pricePerWallSF above (which blends in ceilings/trim/heavy prep).
+  // Not meaningful in Simple $/SF mode: that rate has no discrete coat cost.
+  const pricePerWallSFPerCoat =
+    pb.wallPricingMode === 'detailed' && netWallSF > 0 ? walls.price / (netWallSF * coats) : null;
   // Floor area: measured rooms if any, else the wall÷3 assumption (spec).
   const floorSF = floorSFMeasured > 0 ? floorSFMeasured : netWallSF / 3;
   const pricePerFloorSF = floorSF > 0 ? totalPrice / floorSF : null;
@@ -174,7 +218,9 @@ export function computeQuote(
       `This works out to $${pricePerFloorSF.toFixed(2)} per sq ft of floor area — the usual Ontario band is $2–6. Check the scale and ceiling heights on this one.`,
     );
   }
-  if (labourShare !== null && (labourShare < 0.5 || labourShare > 0.9)) {
+  // Labour share isn't a meaningful signal when walls are priced as a flat
+  // $/SF rate with no labour/material split to check.
+  if (pb.wallPricingMode === 'detailed' && labourShare !== null && (labourShare < 0.5 || labourShare > 0.9)) {
     warnings.push(
       `Labour is ${(labourShare * 100).toFixed(0)}% of the price — normally 70–80%. Check the paint grade and labour rate in the Price Book.`,
     );
@@ -195,6 +241,7 @@ export function computeQuote(
     floorSFMeasured,
     cross: {
       pricePerWallSF,
+      pricePerWallSFPerCoat,
       pricePerFloorSF,
       floorAssumption:
         floorSFMeasured > 0
@@ -244,7 +291,7 @@ function priceQuantities(
   pb: PriceBook,
 ): Omit<QuoteGroup, 'id' | 'title' | 'detail'> {
   const netWallSF = netWallM2 * SQFT_PER_M2;
-  const walls = paintMathLinear(netWallSF, pb.production[pb.wallMethod], pb, pb.wallMethod === 'spray');
+  const walls = wallMathLinear(netWallSF, pb);
   const ceilings = paintMathLinear(ceilingM2 * SQFT_PER_M2, pb.production.rollOnly, pb, false);
   const trimCost = trimM * FT_PER_M * pb.trimRate;
   const trim: QuoteCategory = {
@@ -324,7 +371,11 @@ export function computeGroups(
               .filter((o): o is OpeningMeasurement => o.kind === 'opening' && o.assignedTo === m.id)
               .reduce((s, o) => s + o.sfM2, 0)
           : 0;
-        netWallM2 = gross - openings;
+        // Clamp per room, same as the page-level total: a room whose own
+        // assigned openings outweigh its own gross area reads 0, not a
+        // confusing negative SF/price. The leftover bucket below absorbs
+        // the difference, so the page still sums to the exact same total.
+        netWallM2 = Math.max(0, gross - openings);
       } else if (m.kind === 'area') {
         const gross = m.perimeterM * m.wallHeightM;
         const openings = pg.deduct
@@ -332,7 +383,7 @@ export function computeGroups(
               .filter((o): o is OpeningMeasurement => o.kind === 'opening' && o.assignedTo === m.id)
               .reduce((s, o) => s + o.sfM2, 0)
           : 0;
-        netWallM2 = gross - openings;
+        netWallM2 = Math.max(0, gross - openings);
       } else if (m.kind === 'ceiling') {
         ceilingM2 = m.areaM2;
       } else if (m.kind === 'length' && m.purpose === 'trim') {
@@ -360,4 +411,174 @@ export function computeGroups(
     }
   }
   return groups;
+}
+
+// ---------- manual add-ons ----------
+// Price-book-rate line items the user drops onto a quote directly (not
+// derived from any plan measurement) — e.g. extra trim a GC asked for,
+// a heavy-prep allowance, or a flat dollar adjustment. Per-project, not
+// part of the plan's measured quantities, so they're priced here and
+// folded into totals at the display/export layer rather than inside
+// computeQuote/computeGroups.
+
+export type AddOnSource =
+  | 'paintContractor'
+  | 'paintMid'
+  | 'paintPremium'
+  | 'trim'
+  | 'heavyPrep'
+  | 'labourHours'
+  | 'flat';
+
+export const ADD_ON_SOURCES: [AddOnSource, string, string][] = [
+  ['paintContractor', 'Paint — contractor grade', 'gal'],
+  ['paintMid', 'Paint — mid grade', 'gal'],
+  ['paintPremium', 'Paint — premium', 'gal'],
+  ['trim', 'Trim', 'LF'],
+  ['heavyPrep', 'Heavy prep', 'SF'],
+  ['labourHours', 'Labour', 'hr'],
+  ['flat', 'Flat dollar amount', '$'],
+];
+
+export interface ManualAddOn {
+  id: string;
+  label: string;
+  source: AddOnSource;
+  /** Meaning depends on source: gallons / LF / SF / hours, or dollars for 'flat'. */
+  qty: number;
+}
+
+export interface AddOnPriced extends ManualAddOn {
+  cost: number;
+  price: number;
+}
+
+export function loadAddOns(projectId: string): ManualAddOn[] {
+  try {
+    const raw = localStorage.getItem(`${ADDONS_PREFIX}${projectId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed as ManualAddOn[];
+    }
+  } catch {
+    /* fall through to none */
+  }
+  return [];
+}
+
+export function saveAddOns(projectId: string, items: ManualAddOn[]): void {
+  try {
+    localStorage.setItem(`${ADDONS_PREFIX}${projectId}`, JSON.stringify(items));
+  } catch {
+    /* non-fatal */
+  }
+}
+
+export function priceAddOn(a: ManualAddOn, pb: PriceBook): AddOnPriced {
+  let cost = 0;
+  switch (a.source) {
+    case 'paintContractor':
+      cost = a.qty * pb.paintPrice.contractor;
+      break;
+    case 'paintMid':
+      cost = a.qty * pb.paintPrice.mid;
+      break;
+    case 'paintPremium':
+      cost = a.qty * pb.paintPrice.premium;
+      break;
+    case 'trim':
+      cost = a.qty * pb.trimRate;
+      break;
+    case 'heavyPrep':
+      cost = a.qty * pb.heavyPrepAdder;
+      break;
+    case 'labourHours':
+      cost = a.qty * pb.labourRate;
+      break;
+    case 'flat':
+      cost = a.qty;
+      break;
+  }
+  // A flat dollar line is the user dialing in the exact price impact —
+  // don't mark it up again.
+  const price = a.source === 'flat' ? cost : cost * (1 + pb.margin);
+  return { ...a, cost, price };
+}
+
+export function priceAddOns(
+  addOns: ManualAddOn[],
+  pb: PriceBook,
+): { items: AddOnPriced[]; cost: number; price: number } {
+  const items = addOns.map((a) => priceAddOn(a, pb));
+  return {
+    items,
+    cost: items.reduce((s, i) => s + i.cost, 0),
+    price: items.reduce((s, i) => s + i.price, 0),
+  };
+}
+
+const unitOf = (source: AddOnSource): string => ADD_ON_SOURCES.find(([s]) => s === source)?.[2] ?? '';
+
+export function explainAddOns(items: AddOnPriced[]): string[] {
+  return items.map((a) =>
+    a.source === 'flat'
+      ? `${a.label}: ${fmtMoney(a.qty)} flat add-on.`
+      : `${a.label}: ${a.qty} ${unitOf(a.source)} × price book rate = ${fmtMoney(a.cost)} cost × margin = ${fmtMoney(a.price)}.`,
+  );
+}
+
+// ---------- pricing narrative ----------
+// Plain-English derivation of the price from the price book's own numbers —
+// "show your work" for the quote, so a painter (or their client) can see
+// exactly which rate produced which dollar.
+
+const WALL_METHOD_LABEL: Record<PriceBook['wallMethod'], string> = {
+  cutRoll: 'cut & roll',
+  rollOnly: 'roll only',
+  spray: 'spray',
+  textured: 'textured',
+};
+
+export function explainQuote(q: Quote, pb: PriceBook): string[] {
+  const lines: string[] = [];
+  const coats = Math.max(1, Math.round(pb.coats));
+
+  if (q.walls.qty > 0) {
+    if (pb.wallPricingMode === 'simple') {
+      lines.push(
+        `Walls: ${Math.round(q.walls.qty).toLocaleString('en-CA')} SF net × $${pb.simpleWallRate.toFixed(2)}/SF (your all-in wall rate) = ${fmtMoney(q.walls.price)}.`,
+      );
+    } else {
+      const waste = pb.wallMethod === 'spray' ? pb.wasteSprayed : pb.wasteRolled;
+      lines.push(
+        `Walls: ${Math.round(q.walls.qty).toLocaleString('en-CA')} SF net × ${coats} coat${coats > 1 ? 's' : ''} ÷ ${pb.coverage[pb.coverageChoice]} SF/gal (${pb.coverageChoice}) × ${(1 + waste).toFixed(2)} waste factor = ${q.walls.gallons.toFixed(1)} gal of ${pb.paintGrade} paint @ $${pb.paintPrice[pb.paintGrade]}/gal = ${fmtMoney(q.walls.materialCost)} in materials.`,
+      );
+      lines.push(
+        `At ${pb.production[pb.wallMethod]} SF/hr (${WALL_METHOD_LABEL[pb.wallMethod]})${pb.highCeiling ? `, +${(pb.highCeilingAdder * 100).toFixed(0)}% for the high-ceiling adder,` : ''} and a ${(pb.prepShare * 100).toFixed(0)}% prep share, that's ${q.walls.hours.toFixed(1)} labour hours @ $${pb.labourRate}/hr = ${fmtMoney(q.walls.labourCost)}.`,
+      );
+      lines.push(
+        `Walls cost ${fmtMoney(q.walls.cost)} × ${(1 + pb.margin).toFixed(2)} margin = ${fmtMoney(q.walls.price)}.`,
+      );
+    }
+  }
+
+  if (q.ceilings.qty > 0) {
+    lines.push(
+      `Ceilings: ${Math.round(q.ceilings.qty).toLocaleString('en-CA')} SF × ${coats} coats ÷ ${pb.coverage[pb.coverageChoice]} SF/gal = ${q.ceilings.gallons.toFixed(1)} gal; ${q.ceilings.hours.toFixed(1)} hr @ $${pb.labourRate}/hr. Cost ${fmtMoney(q.ceilings.cost)} × ${(1 + pb.margin).toFixed(2)} margin = ${fmtMoney(q.ceilings.price)}.`,
+    );
+  }
+
+  if (q.trim.qty > 0) {
+    lines.push(
+      `Trim: ${Math.round(q.trim.qty).toLocaleString('en-CA')} LF × $${pb.trimRate}/LF = ${fmtMoney(q.trim.cost)} × ${(1 + pb.margin).toFixed(2)} margin = ${fmtMoney(q.trim.price)}.`,
+    );
+  }
+
+  if (q.heavyPrepCost > 0) {
+    lines.push(
+      `Heavy prep: ${Math.round(q.netWallSF).toLocaleString('en-CA')} SF × $${pb.heavyPrepAdder}/SF adder = ${fmtMoney(q.heavyPrepCost)} × ${(1 + pb.margin).toFixed(2)} margin = ${fmtMoney(q.heavyPrepCost * (1 + pb.margin))}.`,
+    );
+  }
+
+  return lines;
 }

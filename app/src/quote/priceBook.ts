@@ -38,6 +38,13 @@ export interface PriceBook {
   trimRate: number;
   /** Margin applied on top of cost. */
   margin: number;
+  /** Walls only: 'detailed' builds up from labour+material (above); 'simple'
+   *  charges a single all-in $/SF rate instead. Ceilings/trim/heavy prep are
+   *  unaffected either way. */
+  wallPricingMode: 'detailed' | 'simple';
+  /** All-in $/SF of net wall area (labour + materials + everything), used
+   *  when wallPricingMode === 'simple'. */
+  simpleWallRate: number;
 }
 
 export const ONTARIO_DEFAULTS: PriceBook = {
@@ -59,6 +66,8 @@ export const ONTARIO_DEFAULTS: PriceBook = {
   highCeilingAdder: 0.3,
   trimRate: 2.5,
   margin: 0.3,
+  wallPricingMode: 'detailed',
+  simpleWallRate: 4,
 };
 
 const KEY = 'pt:v1:pricebook';

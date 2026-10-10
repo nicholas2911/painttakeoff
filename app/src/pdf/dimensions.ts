@@ -35,8 +35,10 @@ export function parseDimensionText(str: string): number | null {
     const m = unit === 'm' || unit.startsWith('meter') || unit.startsWith('metre') ? v : v / 1000;
     return m > 0 ? m : null;
   }
-  // Bare number: metric plans print mm ("12270"). Three+ digits → mm.
-  if (/^\d{3,6}$/.test(t)) return parseInt(t, 10) / 1000;
+  // Bare number: metric plans print mm ("12270"). Four+ digits → mm. (Three
+  // digits is left unparsed — "100"-"999" collides with room/sheet/page
+  // numbers, which are exactly what this must not auto-accept as a scale.)
+  if (/^\d{4,6}$/.test(t)) return parseInt(t, 10) / 1000;
   return null;
 }
 

@@ -22,6 +22,8 @@ export interface AreaOverlay {
   id: string;
   rect: { qx: number; qy: number; qw: number; qh: number };
   source: HTMLCanvasElement | HTMLImageElement;
+  /** Scratch-layer rooms render dimmed; real ones default to fully opaque. */
+  opacity?: number;
 }
 
 export interface LiveMeasure {
@@ -39,6 +41,11 @@ interface OverlayProps {
   pointsPerMeter: number | null;
   units: UnitSystem;
   measurements: Measurement[];
+  /** Dimmed, non-interactive measurements drawn underneath — the real
+   *  layer, shown (read-only) while the scratch overlay is active. Chain
+   *  drawing still snaps to these, so you can trace over real geometry. */
+  backgroundMeasurements?: Measurement[];
+  backgroundOpacity?: number;
   selectedId: string | null;
   /** When on, canvas labels show the measurement's name with its size. */
   showNamesOnPlan: boolean;
@@ -157,7 +164,7 @@ export default function Overlay(props: OverlayProps) {
         best = chain[0];
       }
     }
-    for (const m of props.measurements) {
+    for (const m of [...props.measurements, ...(props.backgroundMeasurements ?? [])]) {
       if (m.kind === 'length' || m.kind === 'ceiling') {
         for (const v of m.points) {
           const d = pointDistance(p, v);
@@ -315,6 +322,7 @@ export default function Overlay(props: OverlayProps) {
 
     // Quick Area region overlays (active session + accepted rooms, incl. red cutouts)
     for (const ov of props.areaOverlays) {
+      ctx.globalAlpha = ov.opacity ?? 1;
       if (rot === 0) {
         ctx.drawImage(
           ov.source,
@@ -336,6 +344,7 @@ export default function Overlay(props: OverlayProps) {
         ctx.drawImage(ov.source, -ov.rect.qw / 2, -ov.rect.qh / 2, ov.rect.qw, ov.rect.qh);
         ctx.restore();
       }
+      ctx.globalAlpha = 1;
     }
 
     // Click-a-dimension highlight: exactly what was read, in page space so
@@ -359,85 +368,96 @@ export default function Overlay(props: OverlayProps) {
       ctx.stroke();
     }
 
-    // Finished measurements
-    for (const m of props.measurements) {
-      if (m.kind === 'ceiling') {
-        // Ceiling polygon: tinted distinctly (violet) from Quick Area rooms.
-        const selected = m.id === props.selectedId;
-        const tint = props.dark ? 'rgba(178, 132, 220, 0.30)' : 'rgba(142, 68, 173, 0.20)';
-        const edge = colorFor(m, props.dark);
+    // Finished measurements. `interactive` false = background pass: no
+    // selection highlight, no delete-✕ affordance (those items aren't the
+    // active layer, so clicking them shouldn't do anything).
+    const drawMeasurementSet = (items: Measurement[], opacity: number, interactive: boolean) => {
+      ctx.globalAlpha = opacity;
+      for (const m of items) {
+        if (m.kind === 'ceiling') {
+          // Ceiling polygon: tinted distinctly (violet) from Quick Area rooms.
+          const selected = interactive && m.id === props.selectedId;
+          const tint = props.dark ? 'rgba(178, 132, 220, 0.30)' : 'rgba(142, 68, 173, 0.20)';
+          const edge = colorFor(m, props.dark);
+          ctx.beginPath();
+          m.points.forEach((p, i) => (i === 0 ? ctx.moveTo(sx(p), sy(p)) : ctx.lineTo(sx(p), sy(p))));
+          ctx.closePath();
+          ctx.fillStyle = tint;
+          ctx.fill();
+          ctx.strokeStyle = selected ? cActive : edge;
+          ctx.lineWidth = selected ? 3 : 1.5;
+          ctx.stroke();
+          const cxm = m.points.reduce((s, p) => s + p.x, 0) / m.points.length;
+          const cym = m.points.reduce((s, p) => s + p.y, 0) / m.points.length;
+          drawLabel(
+            sx({ x: cxm, y: cym }),
+            sy({ x: cxm, y: cym }),
+            props.showNamesOnPlan ? `${m.label} · ${formatAreaLabel(m.areaM2)}` : formatAreaLabel(m.areaM2),
+            edge,
+            interactive && selected ? m.id : undefined,
+          );
+          continue;
+        }
+        if (m.kind === 'area') continue; // Quick Area rooms render via their mask overlay
+        if (m.kind === 'opening') {
+          const selected = interactive && m.id === props.selectedId;
+          const color = colorFor(m, props.dark);
+          const x = sx(m.point);
+          const y = sy(m.point);
+          ctx.fillStyle = color;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = selected ? 3 : 1.5;
+          ctx.beginPath();
+          if (m.openType === 'door') ctx.arc(x, y, 6, 0, Math.PI * 2);
+          else if (m.openType === 'window') {
+            ctx.moveTo(x, y - 6);
+            ctx.lineTo(x + 6, y);
+            ctx.lineTo(x, y + 6);
+            ctx.lineTo(x - 6, y);
+            ctx.closePath();
+          } else ctx.rect(x - 5.5, y - 5.5, 11, 11);
+          ctx.fill();
+          if (selected) {
+            ctx.beginPath();
+            ctx.arc(x, y, 11, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+          ctx.fillStyle = color;
+          ctx.fillText(`−${formatAreaShort(m.sfM2)}`, x + 9, y + 4);
+          continue;
+        }
+        if (m.kind !== 'length') continue;
+        const selected = interactive && m.id === props.selectedId;
+        const color = selected ? cActive : colorFor(m, props.dark);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = selected ? 3 : 2;
         ctx.beginPath();
         m.points.forEach((p, i) => (i === 0 ? ctx.moveTo(sx(p), sy(p)) : ctx.lineTo(sx(p), sy(p))));
-        ctx.closePath();
-        ctx.fillStyle = tint;
-        ctx.fill();
-        ctx.strokeStyle = selected ? cActive : edge;
-        ctx.lineWidth = selected ? 3 : 1.5;
         ctx.stroke();
-        const cxm = m.points.reduce((s, p) => s + p.x, 0) / m.points.length;
-        const cym = m.points.reduce((s, p) => s + p.y, 0) / m.points.length;
-        drawLabel(
-          sx({ x: cxm, y: cym }),
-          sy({ x: cxm, y: cym }),
-          props.showNamesOnPlan ? `${m.label} · ${formatAreaLabel(m.areaM2)}` : formatAreaLabel(m.areaM2),
-          edge,
-          selected ? m.id : undefined,
-        );
-        continue;
-      }
-      if (m.kind === 'area') continue; // Quick Area rooms render via their mask overlay
-      if (m.kind === 'opening') {
-        const selected = m.id === props.selectedId;
-        const color = colorFor(m, props.dark);
-        const x = sx(m.point);
-        const y = sy(m.point);
-        ctx.fillStyle = color;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = selected ? 3 : 1.5;
-        ctx.beginPath();
-        if (m.openType === 'door') ctx.arc(x, y, 6, 0, Math.PI * 2);
-        else if (m.openType === 'window') {
-          ctx.moveTo(x, y - 6);
-          ctx.lineTo(x + 6, y);
-          ctx.lineTo(x, y + 6);
-          ctx.lineTo(x - 6, y);
-          ctx.closePath();
-        } else ctx.rect(x - 5.5, y - 5.5, 11, 11);
-        ctx.fill();
-        if (selected) {
+        for (const p of m.points) {
+          ctx.fillStyle = color;
           ctx.beginPath();
-          ctx.arc(x, y, 11, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.arc(sx(p), sy(p), selected ? 4 : 3, 0, Math.PI * 2);
+          ctx.fill();
         }
-        ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
-        ctx.fillStyle = color;
-        ctx.fillText(`−${formatAreaShort(m.sfM2)}`, x + 9, y + 4);
-        continue;
+        const mid = m.points[Math.floor(m.points.length / 2)];
+        const prev = m.points[Math.floor(m.points.length / 2) - 1] ?? m.points[0];
+        drawLabel(
+          (sx(mid) + sx(prev)) / 2,
+          (sy(mid) + sy(prev)) / 2,
+          props.showNamesOnPlan ? `${m.label} · ${formatLength(m.totalMeters, units)}` : formatLength(m.totalMeters, units),
+          color,
+          interactive && selected ? m.id : undefined,
+        );
       }
-      if (m.kind !== 'length') continue;
-      const selected = m.id === props.selectedId;
-      const color = selected ? cActive : colorFor(m, props.dark);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = selected ? 3 : 2;
-      ctx.beginPath();
-      m.points.forEach((p, i) => (i === 0 ? ctx.moveTo(sx(p), sy(p)) : ctx.lineTo(sx(p), sy(p))));
-      ctx.stroke();
-      for (const p of m.points) {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(sx(p), sy(p), selected ? 4 : 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      const mid = m.points[Math.floor(m.points.length / 2)];
-      const prev = m.points[Math.floor(m.points.length / 2) - 1] ?? m.points[0];
-      drawLabel(
-        (sx(mid) + sx(prev)) / 2,
-        (sy(mid) + sy(prev)) / 2,
-        props.showNamesOnPlan ? `${m.label} · ${formatLength(m.totalMeters, units)}` : formatLength(m.totalMeters, units),
-        color,
-        selected ? m.id : undefined,
-      );
+      ctx.globalAlpha = 1;
+    };
+
+    if (props.backgroundMeasurements?.length) {
+      drawMeasurementSet(props.backgroundMeasurements, props.backgroundOpacity ?? 1, false);
     }
+    drawMeasurementSet(props.measurements, 1, true);
 
     // Set-scale picking marker + rubber band
     if (pending && (mode === 'calibrate' || mode === 'axisCheck')) {

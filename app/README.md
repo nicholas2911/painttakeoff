@@ -169,12 +169,34 @@ toggle; a "?" button lists the shortcuts.
   grand total (the pricing math is linear in every quantity). The view
   still shows paint to buy, labour, and the big **QUOTE PRICE**.
 - **Sanity cross-metrics** on every quote: price per SF of wall, price per
+  SF of wall **per coat** (walls only — isolates the paint economics from
+  ceilings/trim/heavy-prep; hidden in Simple mode, see below), price per
   SF of floor (measured room floors if available, else wall ÷ 3 with the
   assumption shown), labour share, gallons total. Out-of-band values get
   an amber plain-English warning ("check your scale and ceiling heights").
+- **Simple $/SF wall pricing** (Price Book → **Wall pricing** tab,
+  Detailed | Simple): Simple charges one flat all-in $/SF rate for walls
+  (labour + materials + margin in one number) instead of the labour/paint
+  buildup. Ceilings, trim, and heavy prep are unaffected either way —
+  only the wall category switches.
+- **Quote options** (in the Quote view itself): paint grade, heavy prep,
+  and the high-ceiling/lift adder can be flipped right on the quote —
+  these are **per-project overrides** (`pt:v1:quoteoverrides:*`) that
+  start from your saved Price Book but never write back to it, so other
+  projects keep your defaults. "Reset to defaults" clears the override.
+- **Manual add-ons**: drop any Price Book rate onto a quote as its own
+  line — paint (by grade), trim, heavy prep, labour hours, or a flat
+  dollar amount — with a quantity and label, priced at the same rate +
+  margin as the rest of the quote (flat amounts aren't marked up again).
+  Saved per project (`pt:v1:addons:*`); add/remove freely.
+- **"How we got this price"**: a collapsible plain-English walkthrough
+  under the quote, citing the actual Price Book numbers and quantities
+  for every category plus each add-on, ending in the same cost → price
+  the quote shows.
 - **Export to Excel** (SheetJS): a three-sheet `.xlsx` — Measurements (one
   row per measurement per page + page totals, custom names included),
-  Quote (line items, cross-metrics, price-book snapshot for audit), and
+  Quote (line items, add-ons, cross-metrics, price-book snapshot for
+  audit — including any per-quote overrides), and
   Breakdown (grouped rows matching the quote view's current grouping —
   whole project / per room / per page — with a subtotal per group and a
   grand total), named `<plan>-quote-<date>.xlsx`.
@@ -218,6 +240,20 @@ toggle; a "?" button lists the shortcuts.
   and a **"Show names on the plan"** toggle draws names (with sizes) as
   the canvas labels. Custom names flow into the per-room quote breakdown
   and the Excel export. Trash per row, Delete key for the selected row.
+- **Scratch overlay** (toolbar **Overlay** button): a second, independent
+  measurement layer for the current page — draw on it with any tool and
+  nothing you add ever counts toward that page's totals, the quote, or
+  the Excel export. The real measurements stay visible underneath,
+  dimmed to a user-set opacity (the slider in the banner that appears
+  while it's on), so you can trace against them. Turns off automatically
+  when you change pages. Persisted per page (`pt:v1:scratch:*`).
+- **Edit ▾ menu** (toolbar): **Undo** and **Clear** act on whichever
+  layer is active — the scratch overlay while it's on, otherwise the
+  real measurements — so the same controls work for both. Clear needs a
+  second click within 3s to confirm. **History** opens a list of the
+  last ~20 states for the current page + layer, newest first, each with
+  a one-click **Revert to here** (in-session only; resets on restart —
+  not a saved checkpoint system).
 - **Color language**: every measurement kind has a fixed color, on the
   plan and in the panel (per-row dots + a legend at the panel bottom) —
   blue = walls, violet = ceilings, amber = trim, green = Quick Area

@@ -80,6 +80,8 @@ export type Measurement =
 export type MeasurementMap = Record<number, Measurement[]>;
 
 const PREFIX = 'pt:v1:measure:';
+const SCRATCH_PREFIX = 'pt:v1:scratch:';
+const SCRATCH_OPACITY_KEY = 'pt:v1:scratch-opacity';
 const PANEL_KEY = 'pt:v1:panel-open';
 const DEFAULT_HEIGHT_KEY = 'pt:v1:default-height-m';
 const OPENING_SIZES_KEY = 'pt:v1:opening-sizes';
@@ -206,6 +208,65 @@ export function saveMeasurements(
     localStorage.setItem(storageKey(fingerprint, page), JSON.stringify(items));
   } catch {
     // Storage full/blocked: measurements still live in memory this session.
+  }
+}
+
+// ---------- scratch overlay ----------
+// A second, independent measurement set per page — a "duplicate page"
+// layered on top of the real one. Drawing here never touches the real
+// measurements and is never counted toward totals/quote/Excel; it's purely
+// for tracing something on the plan you don't want added to the page.
+
+function scratchStorageKey(fingerprint: string, page: number): string {
+  return `${SCRATCH_PREFIX}${fingerprint}:${page}`;
+}
+
+export function loadScratchMeasurements(fingerprint: string): MeasurementMap {
+  const map: MeasurementMap = {};
+  const prefix = `${SCRATCH_PREFIX}${fingerprint}:`;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(prefix)) continue;
+      const page = parseInt(key.slice(prefix.length), 10);
+      if (Number.isNaN(page)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Measurement[];
+      if (Array.isArray(parsed)) map[page] = parsed;
+    }
+  } catch {
+    // Corrupt/unavailable storage — start empty.
+  }
+  return map;
+}
+
+export function saveScratchMeasurements(
+  fingerprint: string,
+  page: number,
+  items: Measurement[],
+): void {
+  try {
+    localStorage.setItem(scratchStorageKey(fingerprint, page), JSON.stringify(items));
+  } catch {
+    // Storage full/blocked: scratch items still live in memory this session.
+  }
+}
+
+export function loadScratchOpacity(): number {
+  try {
+    const v = parseFloat(localStorage.getItem(SCRATCH_OPACITY_KEY) ?? '');
+    return Number.isFinite(v) && v >= 0.05 && v <= 1 ? v : 0.4;
+  } catch {
+    return 0.4;
+  }
+}
+
+export function saveScratchOpacity(v: number): void {
+  try {
+    localStorage.setItem(SCRATCH_OPACITY_KEY, String(v));
+  } catch {
+    /* non-fatal */
   }
 }
 

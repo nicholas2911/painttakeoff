@@ -16,12 +16,16 @@ import {
   loadDefaultWallHeight,
   loadOpeningSizes,
   loadDeductOpenings,
+  loadScratchMeasurements,
+  loadScratchOpacity,
   newId,
   saveMeasurements,
   saveDefaultWallHeight,
   saveOpeningSizes,
   saveDeductOpenings,
   savePanelOpen,
+  saveScratchMeasurements,
+  saveScratchOpacity,
   type AreaMeasurement,
   type Measurement,
   type MeasurementMap,
@@ -73,6 +77,7 @@ import QuickAreaCard, { type QaValues } from './components/QuickAreaCard';
 import OpeningPopover from './components/OpeningPopover';
 import PriceBookModal from './components/PriceBookModal';
 import QuoteView from './components/QuoteView';
+import HistoryPanel from './components/HistoryPanel';
 import CardActionSheet from './components/CardActionSheet';
 import InvoiceView from './components/InvoiceView';
 import {
@@ -84,7 +89,18 @@ import {
   type InvoiceLine,
 } from './invoice/invoiceModel';
 import { loadPriceBook, savePriceBook, type PriceBook } from './quote/priceBook';
-import { computeQuote, computeGroups, pageTotals, type QuoteGrouping } from './quote/quote';
+import {
+  computeQuote,
+  computeGroups,
+  pageTotals,
+  priceAddOns,
+  loadQuoteOverrides,
+  saveQuoteOverrides,
+  loadAddOns,
+  saveAddOns,
+  type QuoteGrouping,
+  type ManualAddOn,
+} from './quote/quote';
 import { exportQuoteXlsx } from './quote/excel';
 import type { AreaOverlay, LiveMeasure } from './components/Overlay';
 import {
@@ -142,6 +158,13 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [scales, setScales] = useState<ScaleMap>({});
   const [measurements, setMeasurements] = useState<MeasurementMap>({});
+  // ---------- scratch overlay: a scratchpad layer, never counted in totals ----------
+  const [scratchMeasurements, setScratchMeasurements] = useState<MeasurementMap>({});
+  const [scratchActive, setScratchActive] = useState(false);
+  const [scratchOpacity, setScratchOpacity] = useState<number>(() => loadScratchOpacity());
+  // ---------- lightweight in-session history (last N states per page+layer) ----------
+  const [history, setHistory] = useState<Record<string, { items: Measurement[]; at: number }[]>>({});
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [pagePropsMap, setPagePropsMap] = useState<PagePropsMap>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState<boolean>(() => loadPanelOpen());
@@ -203,11 +226,21 @@ export default function App() {
 
   const scale = plan ? scales[pageNum] : undefined;
   const pageMeasurements = plan ? measurements[pageNum] ?? [] : [];
+  const pageScratch = plan ? scratchMeasurements[pageNum] ?? [] : [];
+  /** Whichever layer drawing/deleting/undo currently targets. */
+  const activeMeasurements = scratchActive ? pageScratch : pageMeasurements;
+  const activeLayerKey = scratchActive ? 'scratch' : 'main';
 
   // Per-page settings (deductions toggle) follow the current page.
   useEffect(() => {
     if (plan) setDeduct(loadDeductOpenings(plan.fingerprint, pageNum));
   }, [plan, pageNum]);
+
+  // Scratch overlay is a "right now, on this page" scratchpad — turn it off
+  // when you navigate away so it's never accidentally left on elsewhere.
+  useEffect(() => {
+    setScratchActive(false);
+  }, [pageNum]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -261,6 +294,9 @@ export default function App() {
       setPlan(next);
       setScales(loadScales(next.fingerprint));
       setMeasurements(loadMeasurements(next.fingerprint));
+      setScratchMeasurements(loadScratchMeasurements(next.fingerprint));
+      setScratchActive(false);
+      setHistory({});
       setPagePropsMap(loadPageProps(next.fingerprint));
       setSelectedPages(pages);
       setCurrentProject(project);
@@ -558,14 +594,76 @@ export default function App() {
   }, [resetInteraction]);
 
   // ---------- measurements ----------
+  // Refs mirror the measurement/scratch state synchronously (no stale-closure
+  // read inside a setState updater) so history can snapshot the "before"
+  // state at the exact moment of each persist call.
+  const measurementsRef = useRef<MeasurementMap>({});
+  const scratchRef = useRef<MeasurementMap>({});
+  useEffect(() => {
+    measurementsRef.current = measurements;
+  }, [measurements]);
+  useEffect(() => {
+    scratchRef.current = scratchMeasurements;
+  }, [scratchMeasurements]);
+
+  const HISTORY_LIMIT = 20;
+  const pushHistory = useCallback((layer: 'main' | 'scratch', page: number, prevItems: Measurement[]) => {
+    const key = `${layer}:${page}`;
+    setHistory((h) => {
+      const list = h[key] ?? [];
+      return { ...h, [key]: [...list, { items: prevItems, at: Date.now() }].slice(-HISTORY_LIMIT) };
+    });
+  }, []);
+
   const persistMeasurements = useCallback(
     (page: number, items: Measurement[]) => {
       if (!plan) return;
+      pushHistory('main', page, measurementsRef.current[page] ?? []);
+      measurementsRef.current = { ...measurementsRef.current, [page]: items };
       setMeasurements((prev) => ({ ...prev, [page]: items }));
       saveMeasurements(plan.fingerprint, page, items);
     },
-    [plan],
+    [plan, pushHistory],
   );
+
+  const persistScratch = useCallback(
+    (page: number, items: Measurement[]) => {
+      if (!plan) return;
+      pushHistory('scratch', page, scratchRef.current[page] ?? []);
+      scratchRef.current = { ...scratchRef.current, [page]: items };
+      setScratchMeasurements((prev) => ({ ...prev, [page]: items }));
+      saveScratchMeasurements(plan.fingerprint, page, items);
+    },
+    [plan, pushHistory],
+  );
+
+  /** Whichever layer is currently interactive — scratch when the overlay is on. */
+  const persistActive = useCallback(
+    (page: number, items: Measurement[]) => {
+      if (scratchActive) persistScratch(page, items);
+      else persistMeasurements(page, items);
+    },
+    [scratchActive, persistScratch, persistMeasurements],
+  );
+
+  const revertToHistory = useCallback(
+    (layer: 'main' | 'scratch', page: number, items: Measurement[]) => {
+      if (layer === 'main') persistMeasurements(page, items);
+      else persistScratch(page, items);
+      showToast('Reverted to that point.');
+    },
+    [persistMeasurements, persistScratch, showToast],
+  );
+
+  const toggleScratch = useCallback(() => {
+    setScratchActive((v) => !v);
+    setSelectedId(null);
+  }, []);
+
+  const changeScratchOpacity = useCallback((v: number) => {
+    setScratchOpacity(v);
+    saveScratchOpacity(v);
+  }, []);
 
   // ---------- click-a-dimension (Set Scale) ----------
   // A calibrate click that lands on written dimension text reads it instead
@@ -671,7 +769,8 @@ export default function App() {
     (points: PagePoint[]) => {
       if (!scale || !plan) return;
       const ppu = scale.pointsPerMeter;
-      const items = measurements[pageNum] ?? [];
+      const items = activeMeasurements;
+      const scratchNote = scratchActive ? ' (scratch — not counted)' : '';
 
       if (measureKind === 'ceiling') {
         if (points.length < 3) return;
@@ -701,9 +800,9 @@ export default function App() {
             createdAt: Date.now(),
           },
         ];
-        persistMeasurements(pageNum, next);
-        showToast(`Saved Ceiling ${n}: ${formatArea(areaM2, units)}.`);
-        maybeShowRenameTip();
+        persistActive(pageNum, next);
+        showToast(`Saved Ceiling ${n}: ${formatArea(areaM2, units)}.${scratchNote}`);
+        if (!scratchActive) maybeShowRenameTip();
         return;
       }
 
@@ -728,18 +827,29 @@ export default function App() {
           createdAt: Date.now(),
         },
       ];
-      persistMeasurements(pageNum, next);
-      showToast(`Saved ${label}: ${formatLength(totalMeters, units)}.`);
-      maybeShowRenameTip();
+      persistActive(pageNum, next);
+      showToast(`Saved ${label}: ${formatLength(totalMeters, units)}.${scratchNote}`);
+      if (!scratchActive) maybeShowRenameTip();
     },
-    [scale, plan, measurements, pageNum, persistMeasurements, units, showToast, measureKind, maybeShowRenameTip],
+    [
+      scale,
+      plan,
+      activeMeasurements,
+      scratchActive,
+      pageNum,
+      persistActive,
+      units,
+      showToast,
+      measureKind,
+      maybeShowRenameTip,
+    ],
   );
 
   // ---------- openings ----------
   const pickOpening = useCallback(
     (type: OpeningType, customM2?: number) => {
       if (!pendingOpening || !plan) return;
-      const items = measurements[pageNum] ?? [];
+      const items = activeMeasurements;
       const n = items.filter((m) => m.kind === 'opening' && m.openType === type).length + 1;
       const letter = type === 'door' ? 'D' : type === 'window' ? 'W' : 'S';
       const sfM2 = customM2 ?? openingSizes[type];
@@ -756,12 +866,27 @@ export default function App() {
           createdAt: Date.now(),
         },
       ];
-      persistMeasurements(pageNum, next);
+      persistActive(pageNum, next);
       setPendingOpening(null);
-      showToast(`Added ${letter}${n} — subtracts ${formatArea(sfM2, units)} from the page total.`);
-      maybeShowRenameTip();
+      showToast(
+        scratchActive
+          ? `Added ${letter}${n} on the scratch overlay — not counted toward the page total.`
+          : `Added ${letter}${n} — subtracts ${formatArea(sfM2, units)} from the page total.`,
+      );
+      if (!scratchActive) maybeShowRenameTip();
     },
-    [pendingOpening, plan, measurements, pageNum, persistMeasurements, openingSizes, units, showToast, maybeShowRenameTip],
+    [
+      pendingOpening,
+      plan,
+      activeMeasurements,
+      scratchActive,
+      pageNum,
+      persistActive,
+      openingSizes,
+      units,
+      showToast,
+      maybeShowRenameTip,
+    ],
   );
 
   const setOpeningSf = useCallback(
@@ -793,14 +918,46 @@ export default function App() {
     [measurements, pageNum, persistMeasurements],
   );
 
-  /** Ctrl+Z when not drawing: remove the most recently added measurement. */
-  const undoLastMeasurement = useCallback(() => {
-    const items = measurements[pageNum] ?? [];
-    if (items.length === 0) return;
+  /** Canvas-driven delete (the label's ✕, or Delete/Ctrl+Z while selecting) —
+   *  always targets whichever layer is currently interactive (scratch while
+   *  the overlay is on, else the real measurements). Panel rows are always
+   *  the real layer, so they keep using deleteMeasurement above. */
+  const deleteActiveMeasurement = useCallback(
+    (id: string) => {
+      if (scratchActive) {
+        const items = (scratchMeasurements[pageNum] ?? []).filter((m) => m.id !== id);
+        persistScratch(pageNum, items);
+        setSelectedId((sel) => (sel === id ? null : sel));
+      } else {
+        deleteMeasurement(id);
+      }
+    },
+    [scratchActive, scratchMeasurements, pageNum, persistScratch, deleteMeasurement],
+  );
+
+  /** Ctrl+Z when not drawing, or the toolbar Undo button: remove the most
+   *  recently added measurement from the active layer. */
+  const undoLastActiveMeasurement = useCallback(() => {
+    const items = activeMeasurements;
+    if (items.length === 0) {
+      showToast('Nothing to undo on this page.');
+      return;
+    }
     const last = items[items.length - 1];
-    deleteMeasurement(last.id);
+    deleteActiveMeasurement(last.id);
     showToast(`Removed ${last.label}.`);
-  }, [measurements, pageNum, deleteMeasurement, showToast]);
+  }, [activeMeasurements, deleteActiveMeasurement, showToast]);
+
+  /** Toolbar Clear button: wipe every measurement on the active layer for
+   *  this page. Recoverable — the wiped state lands in History. */
+  const clearAllActive = useCallback(() => {
+    if (activeMeasurements.length === 0) return;
+    persistActive(pageNum, []);
+    setSelectedId(null);
+    showToast(
+      scratchActive ? 'Cleared the scratch overlay for this page.' : 'Cleared all measurements on this page.',
+    );
+  }, [activeMeasurements, persistActive, pageNum, scratchActive, showToast]);
 
   const setMeasurementHeight = useCallback(
     (id: string, meters: number) => {
@@ -979,7 +1136,7 @@ export default function App() {
           setQa(session);
           const nums = qaNumbers(session);
           setQaValues((prev) => ({
-            name: prev?.name ?? `Room ${pageMeasurements.filter((m) => m.kind === 'area').length + 1}`,
+            name: prev?.name ?? `Room ${activeMeasurements.filter((m) => m.kind === 'area').length + 1}`,
             floorAreaM2: nums.floorAreaM2,
             perimeterM: nums.perimeterM,
             wallHeightM: prev?.wallHeightM ?? defaultHeightM,
@@ -1024,7 +1181,7 @@ export default function App() {
         setQaBusy(false);
       }
     },
-    [scale, plan, qa, qaNumbers, pageMeasurements, units, showToast],
+    [scale, plan, qa, qaNumbers, activeMeasurements, units, showToast],
   );
 
   /** Hand-drawn polygon cut-out (Quick Area "Draw a cut-out"). */
@@ -1106,11 +1263,29 @@ export default function App() {
       maskRect: { qx: 0, qy: 0, qw: qa.raster.pageW, qh: qa.raster.pageH },
       createdAt: Date.now(),
     };
-    persistMeasurements(pageNum, [...(measurements[pageNum] ?? []), m]);
-    showToast(`Saved ${m.label}: ${formatArea(m.floorAreaM2, units)}, walls ≈ ${formatArea(m.wallAreaM2, units)}.`);
-    maybeShowRenameTip();
+    persistActive(pageNum, [...activeMeasurements, m]);
+    showToast(
+      `Saved ${m.label}: ${formatArea(m.floorAreaM2, units)}, walls ≈ ${formatArea(m.wallAreaM2, units)}.${
+        scratchActive ? ' (scratch — not counted)' : ''
+      }`,
+    );
+    if (!scratchActive) maybeShowRenameTip();
     cancelQa();
-  }, [qa, qaValues, scale, plan, pageNum, measurements, persistMeasurements, units, showToast, cancelQa, qaComposite, maybeShowRenameTip]);
+  }, [
+    qa,
+    qaValues,
+    scale,
+    plan,
+    pageNum,
+    activeMeasurements,
+    scratchActive,
+    persistActive,
+    units,
+    showToast,
+    cancelQa,
+    qaComposite,
+    maybeShowRenameTip,
+  ]);
 
   // ---------- navigation & modes ----------
   const gotoPage = useCallback(
@@ -1197,16 +1372,16 @@ export default function App() {
         if (!textEditing && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
           e.preventDefault();
           if (liveMeasure && liveMeasure.points > 0) setChainUndoSignal((n) => n + 1);
-          else undoLastMeasurement();
+          else undoLastActiveMeasurement();
         }
         return;
       }
       // Ctrl+Z: while drawing, undo the last point; otherwise remove the
-      // most recent measurement on this page.
+      // most recent measurement on this page (whichever layer is active).
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (liveMeasure && liveMeasure.points > 0) setChainUndoSignal((n) => n + 1);
-        else undoLastMeasurement();
+        else undoLastActiveMeasurement();
         return;
       }
       switch (e.key) {
@@ -1228,7 +1403,7 @@ export default function App() {
           break;
         case 'Delete':
         case 'Backspace':
-          if (selectedId) deleteMeasurement(selectedId);
+          if (selectedId) deleteActiveMeasurement(selectedId);
           break;
         case 'v':
           changeMode('pan');
@@ -1269,7 +1444,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [pageNum, plan, scale, flow.step, mode, selectedId, liveMeasure, gotoPage, pageOffset, changeMode, resetInteraction, deleteMeasurement, undoLastMeasurement]);
+  }, [pageNum, plan, scale, flow.step, mode, selectedId, liveMeasure, gotoPage, pageOffset, changeMode, resetInteraction, deleteActiveMeasurement, undoLastActiveMeasurement]);
 
   // ---------- overlay images for Quick Area ----------
   const getImage = useCallback((url: string): HTMLImageElement => {
@@ -1330,6 +1505,83 @@ export default function App() {
       .filter((pg) => pg.items.length > 0);
   }, [plan, measurements, defaultHeightM]);
 
+  // ---------- per-quote overrides + manual add-ons ----------
+  // Project-scoped, NOT the global Price Book: flipping paint grade / heavy
+  // prep / high ceiling from the Quote view affects only this project. The
+  // saved Price Book defaults for future projects are untouched.
+  const [quoteOverrides, setQuoteOverridesState] = useState<Partial<PriceBook>>({});
+  const [addOns, setAddOnsState] = useState<ManualAddOn[]>([]);
+  useEffect(() => {
+    if (currentProject) {
+      setQuoteOverridesState(loadQuoteOverrides(currentProject.id));
+      setAddOnsState(loadAddOns(currentProject.id));
+    } else {
+      setQuoteOverridesState({});
+      setAddOnsState([]);
+    }
+  }, [currentProject]);
+
+  const effectivePriceBook = useMemo<PriceBook>(
+    () => ({ ...priceBook, ...quoteOverrides }),
+    [priceBook, quoteOverrides],
+  );
+
+  const setQuoteOverride = useCallback(
+    (patch: Partial<PriceBook>) => {
+      if (!currentProject) return;
+      setQuoteOverridesState((prev) => {
+        const next = { ...prev, ...patch };
+        saveQuoteOverrides(currentProject.id, next);
+        return next;
+      });
+    },
+    [currentProject],
+  );
+
+  const resetQuoteOverrides = useCallback(() => {
+    if (!currentProject) return;
+    setQuoteOverridesState({});
+    saveQuoteOverrides(currentProject.id, {});
+  }, [currentProject]);
+
+  const addAddOn = useCallback(
+    (a: Omit<ManualAddOn, 'id'>) => {
+      if (!currentProject) return;
+      setAddOnsState((prev) => {
+        const next = [...prev, { ...a, id: newId() }];
+        saveAddOns(currentProject.id, next);
+        return next;
+      });
+    },
+    [currentProject],
+  );
+
+  const updateAddOn = useCallback(
+    (id: string, patch: Partial<ManualAddOn>) => {
+      if (!currentProject) return;
+      setAddOnsState((prev) => {
+        const next = prev.map((a) => (a.id === id ? { ...a, ...patch } : a));
+        saveAddOns(currentProject.id, next);
+        return next;
+      });
+    },
+    [currentProject],
+  );
+
+  const removeAddOn = useCallback(
+    (id: string) => {
+      if (!currentProject) return;
+      setAddOnsState((prev) => {
+        const next = prev.filter((a) => a.id !== id);
+        saveAddOns(currentProject.id, next);
+        return next;
+      });
+    },
+    [currentProject],
+  );
+
+  const addOnsPriced = useMemo(() => priceAddOns(addOns, effectivePriceBook), [addOns, effectivePriceBook]);
+
   const quote = useMemo(() => {
     const totals = quotePages.reduce(
       (acc, pg) => {
@@ -1345,8 +1597,8 @@ export default function App() {
       },
       { wallsGrossM2: 0, openingsM2: 0, netWallM2: 0, trimM: 0, ceilingM2: 0, floorM2: 0 },
     );
-    return computeQuote(totals, priceBook);
-  }, [quotePages, priceBook]);
+    return computeQuote(totals, effectivePriceBook);
+  }, [quotePages, effectivePriceBook]);
 
   // Optional: draw measurement names on the plan instead of just lengths.
   const [showNamesOnPlan, setShowNamesOnPlan] = useState(false);
@@ -1392,8 +1644,8 @@ export default function App() {
   // Quote breakdown grouping: whole project (default) / per room / per page.
   const [quoteGrouping, setQuoteGrouping] = useState<QuoteGrouping>('project');
   const quoteGroups = useMemo(
-    () => computeGroups(quotePages, priceBook, quoteGrouping, pageLabelOf),
-    [quotePages, priceBook, quoteGrouping, pageLabelOf],
+    () => computeGroups(quotePages, effectivePriceBook, quoteGrouping, pageLabelOf),
+    [quotePages, effectivePriceBook, quoteGrouping, pageLabelOf],
   );
 
   // ---------- card actions + invoice ----------
@@ -1500,21 +1752,28 @@ export default function App() {
       fileName: `${base}-quote-${date}.xlsx`,
       pages: quotePages,
       quote,
-      priceBook,
+      priceBook: effectivePriceBook,
       groups: quoteGroups,
+      addOns: addOnsPriced.items,
     });
     showToast('Quote spreadsheet downloaded.');
-  }, [plan, quotePages, quote, priceBook, quoteGroups, showToast]);
+  }, [plan, quotePages, quote, effectivePriceBook, quoteGroups, addOnsPriced, showToast]);
 
   const areaOverlays = useMemo<AreaOverlay[]>(() => {    const list: AreaOverlay[] = [];
-    for (const m of pageMeasurements) {
-      if (m.kind === 'area' && m.maskDataUrl && m.maskRect) {
-        list.push({ id: m.id, rect: m.maskRect, source: getImage(m.maskDataUrl) });
-        if (m.cutoutsDataUrl) {
-          list.push({ id: `${m.id}-cutouts`, rect: m.maskRect, source: getImage(m.cutoutsDataUrl) });
+    const pushRooms = (items: Measurement[], opacity: number) => {
+      for (const m of items) {
+        if (m.kind === 'area' && m.maskDataUrl && m.maskRect) {
+          list.push({ id: m.id, rect: m.maskRect, source: getImage(m.maskDataUrl), opacity });
+          if (m.cutoutsDataUrl) {
+            list.push({ id: `${m.id}-cutouts`, rect: m.maskRect, source: getImage(m.cutoutsDataUrl), opacity });
+          }
         }
       }
-    }
+    };
+    pushRooms(pageMeasurements, 1);
+    // The scratch overlay's own accepted Quick Area rooms, dimmed like its
+    // other measurements — never counted, just visible while it's active.
+    if (scratchActive) pushRooms(pageScratch, scratchOpacity);
     if (qa) {
       const composite = qaComposite(qa);
       const tint: [number, number, number, number] =
@@ -1537,7 +1796,7 @@ export default function App() {
       }
     }
     return list;
-  }, [pageMeasurements, qa, theme, getImage, qaComposite]);
+  }, [pageMeasurements, scratchActive, pageScratch, scratchOpacity, qa, theme, getImage, qaComposite]);
 
   // ---------- the guidance bar ----------
   let stepBar = null;
@@ -1752,6 +2011,12 @@ export default function App() {
           setPageRenameOpen(true);
         }}
         onRotatePage={rotatePage}
+        activeCount={activeMeasurements.length}
+        onUndo={undoLastActiveMeasurement}
+        onClearAll={clearAllActive}
+        scratchActive={scratchActive}
+        onToggleScratch={toggleScratch}
+        onOpenHistory={() => setHistoryOpen(true)}
       />
       )}
       {pageRenameOpen && (
@@ -1805,7 +2070,9 @@ export default function App() {
           dark={theme === 'dark'}
           pointsPerMeter={scale?.pointsPerMeter ?? null}
           units={units}
-          measurements={pageMeasurements}
+          measurements={activeMeasurements}
+          backgroundMeasurements={scratchActive ? pageMeasurements : undefined}
+          backgroundOpacity={scratchOpacity}
           selectedId={selectedId}
           showNamesOnPlan={showNamesOnPlan}
           measureKind={measureKind}
@@ -1825,13 +2092,32 @@ export default function App() {
           onFinishCutoutPolygon={handleCutoutPolygon}
           onLiveMeasure={setLiveMeasure}
           onSelect={setSelectedId}
-          onDeleteMeasurement={deleteMeasurement}
+          onDeleteMeasurement={deleteActiveMeasurement}
           onQuickAreaClick={(p) => void handleQuickAreaClick(p)}
           onOpeningClick={(p) => setPendingOpening(p)}
           resetSignal={resetSignal}
           finishSignal={finishSignal}
           chainUndoSignal={chainUndoSignal}
         />
+        {scratchActive && (
+          <div className="scratch-banner">
+            <span>Scratch overlay — drawing here never counts toward this page's total.</span>
+            <label className="scratch-opacity">
+              Opacity
+              <input
+                type="range"
+                min={0.1}
+                max={1}
+                step={0.05}
+                value={scratchOpacity}
+                onChange={(e) => changeScratchOpacity(parseFloat(e.target.value))}
+              />
+            </label>
+            <button className="tool" onClick={toggleScratch}>
+              Exit overlay
+            </button>
+          </div>
+        )}
         {pendingOpening && (
           <OpeningPopover
             x={pendingOpening.x * view.zoom + view.panX + 14}
@@ -1907,6 +2193,17 @@ export default function App() {
           />
         )}
       </div>
+      )}
+      {historyOpen && (
+        <HistoryPanel
+          entries={history[`${activeLayerKey}:${pageNum}`] ?? []}
+          layerLabel={scratchActive ? 'Scratch overlay' : 'Real measurements'}
+          onRevert={(items) => {
+            revertToHistory(activeLayerKey, pageNum, items);
+            setHistoryOpen(false);
+          }}
+          onClose={() => setHistoryOpen(false)}
+        />
       )}
       {!plan && (
         <Dashboard
@@ -2072,6 +2369,14 @@ export default function App() {
           onExport={handleExportQuote}
           onCreateInvoice={startInvoice}
           onClose={() => setQuoteOpen(false)}
+          priceBook={effectivePriceBook}
+          overrides={quoteOverrides}
+          onOverrideChange={setQuoteOverride}
+          onResetOverrides={resetQuoteOverrides}
+          addOns={addOnsPriced.items}
+          onAddAddOn={addAddOn}
+          onUpdateAddOn={updateAddOn}
+          onRemoveAddOn={removeAddOn}
         />
       )}
       {cardAction && (

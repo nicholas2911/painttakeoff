@@ -50,6 +50,10 @@ interface ViewerProps {
   pointsPerMeter: number | null;
   units: UnitSystem;
   measurements: Measurement[];
+  /** Dimmed, non-interactive measurements rendered underneath — the real
+   *  layer, shown while the scratch overlay is active. */
+  backgroundMeasurements?: Measurement[];
+  backgroundOpacity?: number;
   selectedId: string | null;
   showNamesOnPlan: boolean;
   /** Kind being measured — colors the in-progress chain. */
@@ -467,6 +471,8 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
           pointsPerMeter={props.pointsPerMeter}
           units={props.units}
           measurements={props.measurements}
+          backgroundMeasurements={props.backgroundMeasurements}
+          backgroundOpacity={props.backgroundOpacity}
           selectedId={props.selectedId}
           showNamesOnPlan={props.showNamesOnPlan}
           measureKind={props.measureKind}

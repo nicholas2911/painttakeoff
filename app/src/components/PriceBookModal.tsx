@@ -82,6 +82,47 @@ export default function PriceBookModal(props: {
       <div className="modal pricebook-modal">
         <div className="modal-title">Price Book <span className="pb-sub">your rates, saved on this computer</span></div>
 
+        <div className="pb-group pb-group-wide">
+          <div className="pb-group-title">Wall pricing</div>
+          <div className="pb-mode-tabs" role="tablist" aria-label="Wall pricing mode">
+            {(
+              [
+                ['detailed', 'Detailed (labour + materials buildup)'],
+                ['simple', 'Simple — one $/SF rate'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                role="tab"
+                aria-selected={b.wallPricingMode === value}
+                className={b.wallPricingMode === value ? 'active' : ''}
+                onClick={() => set({ wallPricingMode: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {b.wallPricingMode === 'simple' ? (
+            <>
+              <Num
+                label="All-in rate ($/SF of net wall area)"
+                value={b.simpleWallRate}
+                step={0.1}
+                onChange={(v) => set({ simpleWallRate: v })}
+              />
+              <p className="pb-sub">
+                One flat rate covers labour, materials, and margin for walls. Ceilings, trim, and
+                heavy prep below still price from their own rates.
+              </p>
+            </>
+          ) : (
+            <p className="pb-sub">
+              Walls price from the Labour and Paint groups below. Switch to Simple for a quick
+              all-in $/SF quote instead.
+            </p>
+          )}
+        </div>
+
         <div className="pb-grid">
           <div className="pb-group">
             <div className="pb-group-title">Labour</div>

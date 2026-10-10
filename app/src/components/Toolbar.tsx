@@ -58,6 +58,13 @@ interface ToolbarProps {
   onOpenQuote(): void;
   onOpenPages(): void;
   onGoHome(): void;
+  /** Whichever layer is active right now (real, or the scratch overlay). */
+  activeCount: number;
+  onUndo(): void;
+  onClearAll(): void;
+  scratchActive: boolean;
+  onToggleScratch(): void;
+  onOpenHistory(): void;
   /** Custom label for the current page ("" = default "Page N"). */
   pageCustomLabel: string;
   onRenamePage(): void;
@@ -70,8 +77,38 @@ export default function Toolbar(props: ToolbarProps) {
   const [pageText, setPageText] = useState(String(pageNum));
   const [fitOpen, setFitOpen] = useState(false);
   const fitRef = useRef<HTMLDivElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setPageText(String(pageNum)), [pageNum]);
+
+  // Close the Edit menu on any outside click (closing it never cancels the
+  // 3s "Clear? Click again" confirm window — that's its own timer).
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [moreOpen]);
+
+  useEffect(() => () => {
+    if (clearTimer.current) clearTimeout(clearTimer.current);
+  }, []);
+
+  const handleClearClick = () => {
+    if (!confirmingClear) {
+      setConfirmingClear(true);
+      clearTimer.current = setTimeout(() => setConfirmingClear(false), 3000);
+      return;
+    }
+    if (clearTimer.current) clearTimeout(clearTimer.current);
+    setConfirmingClear(false);
+    props.onClearAll();
+  };
 
   // Close the Fit menu on any outside click.
   useEffect(() => {
@@ -232,6 +269,53 @@ export default function Toolbar(props: ToolbarProps) {
         </button>
         <button className="tool" onClick={props.onOpenPriceBook} title="Your rates — labour, paint, margin">
           <DollarIcon />
+        </button>
+      </div>
+
+      <div className="tb-group">
+        <div className="fit-wrap" ref={moreRef}>
+          <button className="tool" disabled={!plan} onClick={() => setMoreOpen((v) => !v)} title="Undo, clear, or see history for this page">
+            <span>Edit ▾</span>
+          </button>
+          {moreOpen && (
+            <div className="fit-menu">
+              <button
+                disabled={props.activeCount === 0}
+                onClick={() => {
+                  setMoreOpen(false);
+                  props.onUndo();
+                }}
+                title={props.scratchActive ? 'Undo the last scratch measurement (Ctrl+Z)' : 'Undo the last measurement (Ctrl+Z)'}
+              >
+                Undo{props.scratchActive ? ' (scratch)' : ''}
+              </button>
+              <button
+                disabled={props.activeCount === 0}
+                className={confirmingClear ? 'confirm-danger' : ''}
+                onClick={handleClearClick}
+                title={props.scratchActive ? 'Clear every scratch measurement on this page' : 'Clear every measurement on this page'}
+              >
+                {confirmingClear ? 'Clear? Click again' : `Clear${props.scratchActive ? ' (scratch)' : ''}`}
+              </button>
+              <button
+                onClick={() => {
+                  setMoreOpen(false);
+                  props.onOpenHistory();
+                }}
+                title="See recent changes and revert"
+              >
+                History
+              </button>
+            </div>
+          )}
+        </div>
+        <button
+          className={`tool ${props.scratchActive ? 'active' : ''}`}
+          disabled={!plan}
+          onClick={props.onToggleScratch}
+          title="Scratch overlay: measure something on this page without it counting toward the total"
+        >
+          <span>{props.scratchActive ? 'Overlay ✓' : 'Overlay'}</span>
         </button>
       </div>
 
