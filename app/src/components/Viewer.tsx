@@ -19,6 +19,7 @@ import {
 import type { PagePoint, ToolMode, ViewTransform } from '../types';
 import type { UnitSystem } from '../measure/units';
 import Overlay, { type AreaOverlay, type LiveMeasure } from './Overlay';
+import type { PageRotation } from '../measure/pageProps';
 import type { Measurement } from '../measure/measureStore';
 
 export interface PageRaster {
@@ -50,9 +51,18 @@ interface ViewerProps {
   units: UnitSystem;
   measurements: Measurement[];
   selectedId: string | null;
+  showNamesOnPlan: boolean;
+  /** Kind being measured — colors the in-progress chain. */
+  measureKind: 'wall' | 'trim' | 'ceiling';
+  /** User rotation (clockwise degrees) — the viewer works in rotated space;
+   *  measurements stay in original page space (the Overlay transforms). */
+  rotation: PageRotation;
+  /** Highlight box around dimension text read off the plan (page space). */
+  dimHighlight: { x: number; y: number; w: number; h: number } | null;
   areaOverlays: AreaOverlay[];
   qaDrawing: boolean;
   onTwoPoints(kind: 'calibrate' | 'axisCheck', p1: PagePoint, p2: PagePoint): void;
+  onProbeDimension?(p: PagePoint): Promise<boolean>;
   onFirstPointPlaced(): void;
   onCancelIntent(): void;
   onFinishMeasurement(points: PagePoint[]): void;
@@ -75,12 +85,13 @@ const MARGIN = 0.35; // extra rendered beyond each visible edge (fraction)
 const OVERPAN = 80; // px the page may be dragged past the container edge
 
 const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref) {
-  const { plan, pageNum, view, onViewChange } = props;
+  const { plan, pageNum, view, onViewChange, rotation } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const [pageDims, setPageDims] = useState({ w: 0, h: 0 }); // page space (pt)
+  const [pageDims, setPageDims] = useState({ w: 0, h: 0 }); // page space (pt), rotated
+  const [baseDims, setBaseDims] = useState({ w: 0, h: 0 }); // original (unrotated) page space
   const [committedZoom, setCommittedZoom] = useState(1);
   const pageRef = useRef<PDFPageProxy | null>(null);
   const renderInfo = useRef<RenderedRegion | null>(null);
@@ -93,6 +104,8 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
   viewRef.current = view;
   const dimsRef = useRef(pageDims);
   dimsRef.current = pageDims;
+  const baseDimsRef = useRef(baseDims);
+  baseDimsRef.current = baseDims;
   const sizeRef = useRef(size);
   sizeRef.current = size;
 
@@ -162,7 +175,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
     },
     async getPageRaster(maxDim = 1600) {
       const page = pageRef.current;
-      const dims = dimsRef.current;
+      const dims = baseDimsRef.current; // raster stays in ORIGINAL orientation
       if (!page || dims.w === 0) return null;
       if (rasterCache.current && rasterCache.current.page === pageRef.current) {
         return rasterCache.current.raster;
@@ -175,7 +188,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
       if (!ctx) return null;
       await page.render({
         canvasContext: ctx,
-        viewport: page.getViewport({ scale }),
+        viewport: page.getViewport({ scale }), // inherent rotation only
         background: '#ffffff',
       }).promise;
       const raster = { canvas, pointsPerPixel: 1 / scale, pageW: dims.w, pageH: dims.h };
@@ -216,15 +229,24 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
       (page) => {
         if (cancelled) return;
         pageRef.current = page;
-        const vp = page.getViewport({ scale: 1 });
+        // Page space = inherent orientation + the user's rotation.
+        const vp = page.getViewport({ scale: 1, rotation: (page.rotate + rotation) % 360 });
         setPageDims({ w: vp.width, h: vp.height });
+        const base = page.getViewport({ scale: 1 });
+        setBaseDims({ w: base.width, h: base.height });
       },
       (err) => console.error('Failed to load page', err),
     );
     return () => {
       cancelled = true;
     };
-  }, [plan, pageNum]);
+  }, [plan, pageNum, rotation]);
+
+  // Rotation changes need fresh bitmaps (the cache is keyed per rotation too).
+  useEffect(() => {
+    cache.current.clear();
+    renderInfo.current = null;
+  }, [rotation]);
 
   // New document: clear bitmap cache, and remember to fit the whole page
   // once the page dimensions and container size are known (they arrive
@@ -245,10 +267,14 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
   // themselves (applyView), so late layout shifts (toolbars/bars appearing,
   // window resizes) re-fit instead of leaving a wrongly-framed first page.
   const prevPageRef = useRef(pageNum);
+  const prevRotRef = useRef(rotation);
+  const prevDimsRef = useRef({ w: 0, h: 0 });
   useEffect(() => {
     if (pageDims.w === 0 || size.w === 0) return;
     if (plan && needsFitRef.current) {
       prevPageRef.current = pageNum;
+      prevRotRef.current = rotation;
+      prevDimsRef.current = pageDims;
       const zoom = Math.min(
         MAX_ZOOM,
         Math.max(MIN_ZOOM, Math.min((size.w - 24) / pageDims.w, (size.h - 24) / pageDims.h)),
@@ -258,8 +284,17 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
         panX: (size.w - pageDims.w * zoom) / 2,
         panY: (size.h - pageDims.h * zoom) / 2,
       });
-    } else if (prevPageRef.current !== pageNum) {
+    } else if (
+      prevPageRef.current !== pageNum ||
+      prevRotRef.current !== rotation ||
+      prevDimsRef.current.w !== pageDims.w ||
+      prevDimsRef.current.h !== pageDims.h
+    ) {
+      // Page switch or rotation: re-center (dims may have swapped — and they
+      // arrive a frame after the rotation flips, so watch them too).
       prevPageRef.current = pageNum;
+      prevRotRef.current = rotation;
+      prevDimsRef.current = pageDims;
       const cur = viewRef.current;
       onViewChange(
         clampPan({
@@ -270,7 +305,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, pageNum, pageDims, size]);
+  }, [plan, pageNum, rotation, pageDims, size]);
 
   // ---------- CSS transform (cheap, runs on every pan/zoom) ----------
   useEffect(() => {
@@ -343,7 +378,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
       }
     }
 
-    const pageKey = `${currentPlan.fingerprint}:${pageNum}`;
+    const pageKey = `${currentPlan.fingerprint}:${pageNum}:r${rotation}`;
     const cached = cache.current.get(pageKey, scale, rect);
     if (cached) {
       drawRegion(cached);
@@ -353,7 +388,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
     taskSlot.current?.cancel();
     const mySeq = ++renderSeq.current;
     try {
-      const { promise } = renderPageRegion(page, rect, scale, taskSlot);
+      const { promise } = renderPageRegion(page, rect, scale, taskSlot, rotation);
       const region = await promise;
       if (mySeq !== renderSeq.current) return; // superseded while rendering
       cache.current.put(pageKey, region);
@@ -361,7 +396,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
     } catch (err) {
       if (!isRenderingCancelled(err)) console.error('Render failed', err);
     }
-  }, [pageNum, visibleRect, expandAndClamp, drawRegion]);
+  }, [pageNum, rotation, visibleRect, expandAndClamp, drawRegion]);
 
   // Schedule renders: zoom changes settle after 160ms (crisp re-render on
   // zoom end), pans after 90ms, page changes immediately-ish.
@@ -383,7 +418,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
       if (renderTimer.current) clearTimeout(renderTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, pageNum, view, size, pageDims, committedZoom]);
+  }, [plan, pageNum, rotation, view, size, pageDims, committedZoom]);
 
   // ---------- wheel: ctrl+wheel zoom (cursor-centered), wheel pan ----------
   useEffect(() => {
@@ -433,9 +468,16 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
           units={props.units}
           measurements={props.measurements}
           selectedId={props.selectedId}
+          showNamesOnPlan={props.showNamesOnPlan}
+          measureKind={props.measureKind}
+          rotation={props.rotation}
+          dimHighlight={props.dimHighlight}
+          basePageW={baseDims.w}
+          basePageH={baseDims.h}
           areaOverlays={props.areaOverlays}
           qaDrawing={props.qaDrawing}
           onTwoPoints={props.onTwoPoints}
+          onProbeDimension={props.onProbeDimension}
           onPanBy={onPanBy}
           onFirstPointPlaced={props.onFirstPointPlaced}
           onCancelIntent={props.onCancelIntent}

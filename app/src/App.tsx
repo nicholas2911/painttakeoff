@@ -29,6 +29,16 @@ import {
   type OpeningType,
 } from './measure/measureStore';
 import {
+  loadPageProps,
+  savePageProps,
+  pageLabel,
+  pageRotation,
+  type PagePropsMap,
+  type PageRotation,
+} from './measure/pageProps';
+import { loadPresets, savePresets, MAX_PRESETS, type ToolPreset } from './measure/toolPresets';
+import { findTextAt, plausibleDimension } from './pdf/dimensions';
+import {
   barrierMap,
   bigBarrierMask,
   cleanBarrierMap,
@@ -74,7 +84,7 @@ import {
   type InvoiceLine,
 } from './invoice/invoiceModel';
 import { loadPriceBook, savePriceBook, type PriceBook } from './quote/priceBook';
-import { computeQuote, pageTotals } from './quote/quote';
+import { computeQuote, computeGroups, pageTotals, type QuoteGrouping } from './quote/quote';
 import { exportQuoteXlsx } from './quote/excel';
 import type { AreaOverlay, LiveMeasure } from './components/Overlay';
 import {
@@ -132,6 +142,7 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [scales, setScales] = useState<ScaleMap>({});
   const [measurements, setMeasurements] = useState<MeasurementMap>({});
+  const [pagePropsMap, setPagePropsMap] = useState<PagePropsMap>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState<boolean>(() => loadPanelOpen());
   const [flow, setFlow] = useState<Flow>({ step: 'idle' });
@@ -149,6 +160,17 @@ export default function App() {
   const [chainUndoSignal, setChainUndoSignal] = useState(0);
   const [defaultHeightM, setDefaultHeightM] = useState<number>(() => loadDefaultWallHeight());
   const [measureKind, setMeasureKind] = useState<'wall' | 'trim' | 'ceiling'>('wall');
+  /** A dimension read off the plan's text layer during Set Scale (prefill). */
+  const [dimGuess, setDimGuess] = useState<{
+    meters: number;
+    text: string;
+    box: { x: number; y: number; w: number; h: number };
+  } | null>(null);
+  /** True once the user edits the prefilled value — clears the highlight. */
+  const [dimEdited, setDimEdited] = useState(false);
+  const [presets, setPresets] = useState<ToolPreset[]>(() => loadPresets());
+  const [renamingPresetId, setRenamingPresetId] = useState<string | null>(null);
+  const [presetNameText, setPresetNameText] = useState('');
   const [pendingOpening, setPendingOpening] = useState<PagePoint | null>(null);
   const [openingSizes, setOpeningSizes] = useState<OpeningSizes>(() => loadOpeningSizes());
   const [deduct, setDeduct] = useState(true);
@@ -239,6 +261,7 @@ export default function App() {
       setPlan(next);
       setScales(loadScales(next.fingerprint));
       setMeasurements(loadMeasurements(next.fingerprint));
+      setPagePropsMap(loadPageProps(next.fingerprint));
       setSelectedPages(pages);
       setCurrentProject(project);
       setPageNum((pages[0] ?? 0) + 1);
@@ -478,6 +501,8 @@ export default function App() {
         timestamp: Date.now(),
       });
       setFlow({ step: 'axisPrompt' });
+      setDimGuess(null);
+      setDimEdited(false);
       showToast('Scale set! One quick double-check will confirm it.');
     },
     [flow, setPageScale, showToast],
@@ -527,6 +552,8 @@ export default function App() {
   const cancelFlow = useCallback(() => {
     setFlow({ step: 'idle' });
     setMode((m) => (m === 'axisCheck' ? 'pan' : m));
+    setDimGuess(null);
+    setDimEdited(false);
     resetInteraction();
   }, [resetInteraction]);
 
@@ -539,6 +566,106 @@ export default function App() {
     },
     [plan],
   );
+
+  // ---------- click-a-dimension (Set Scale) ----------
+  // A calibrate click that lands on written dimension text reads it instead
+  // of becoming one of the two points. Vector PDFs only — scans stay manual.
+  // Trust rules: the read is highlighted on the plan, quoted in the modal,
+  // and implausible values (or digit-ish non-dimensions like "A3" / "3")
+  // are rejected with a plain-English toast instead of prefilling.
+  const probeDimension = useCallback(
+    async (p: PagePoint): Promise<boolean> => {
+      if (!plan) return false;
+      try {
+        const page = await plan.doc.getPage(pageNum);
+        const hit = await findTextAt(page, p);
+        if (!hit) return false; // no text there — a normal point
+        if (hit.meters !== null && plausibleDimension(hit.meters)) {
+          setDimGuess({ meters: hit.meters, text: hit.text, box: hit.box });
+          setDimEdited(false);
+          showToast(
+            `Read “${hit.text}” off the plan → ${formatLength(hit.meters, units)}. Now click the two ends it belongs to.`,
+          );
+        } else if (/\d/.test(hit.text)) {
+          // Digit-ish but not a plausible dimension (page numbers, "A3", sizes)
+          showToast('That text didn’t look like a dimension — type the length instead.');
+        } else {
+          return false; // ordinary label text — treat as a point
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [plan, pageNum, units, showToast],
+  );
+
+  // ---------- tool presets (Measure mode chips) ----------
+  const applyPreset = useCallback(
+    (p: ToolPreset) => {
+      setMeasureKind(p.kind);
+      if (p.kind === 'wall' && p.heightM) {
+        setDefaultHeightM(p.heightM);
+        saveDefaultWallHeight(p.heightM);
+      }
+    },
+    [],
+  );
+
+  const saveCurrentAsPreset = useCallback(() => {
+    if (presets.length >= MAX_PRESETS) return;
+    const name =
+      measureKind === 'wall'
+        ? `Wall · ${formatLength(defaultHeightM, units)}`
+        : measureKind === 'trim'
+          ? 'Trim'
+          : 'Ceiling';
+    const next = [
+      ...presets,
+      {
+        id: newId(),
+        name,
+        kind: measureKind,
+        ...(measureKind === 'wall' ? { heightM: defaultHeightM } : {}),
+      },
+    ];
+    setPresets(next);
+    savePresets(next);
+    showToast(`Preset saved: ${name}. Double-click a chip to rename it.`);
+  }, [presets, measureKind, defaultHeightM, units, showToast]);
+
+  const deletePreset = useCallback(
+    (id: string) => {
+      const next = presets.filter((p) => p.id !== id);
+      setPresets(next);
+      savePresets(next);
+    },
+    [presets],
+  );
+
+  const renamePreset = useCallback(
+    (id: string, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const next = presets.map((p) => (p.id === id ? { ...p, name: trimmed } : p));
+      setPresets(next);
+      savePresets(next);
+    },
+    [presets],
+  );
+
+  // One-time rename nudge: after the very first measurement is saved (ever),
+  // the guidance bar points out that names are editable.
+  const [showRenameTip, setShowRenameTip] = useState(false);
+  const maybeShowRenameTip = useCallback(() => {
+    try {
+      if (localStorage.getItem('pt:v1:rename-tip-seen') === '1') return;
+      localStorage.setItem('pt:v1:rename-tip-seen', '1');
+    } catch {
+      /* still show it */
+    }
+    setShowRenameTip(true);
+  }, []);
 
   const handleFinishMeasurement = useCallback(
     (points: PagePoint[]) => {
@@ -576,6 +703,7 @@ export default function App() {
         ];
         persistMeasurements(pageNum, next);
         showToast(`Saved Ceiling ${n}: ${formatArea(areaM2, units)}.`);
+        maybeShowRenameTip();
         return;
       }
 
@@ -602,8 +730,9 @@ export default function App() {
       ];
       persistMeasurements(pageNum, next);
       showToast(`Saved ${label}: ${formatLength(totalMeters, units)}.`);
+      maybeShowRenameTip();
     },
-    [scale, plan, measurements, pageNum, persistMeasurements, units, showToast, measureKind],
+    [scale, plan, measurements, pageNum, persistMeasurements, units, showToast, measureKind, maybeShowRenameTip],
   );
 
   // ---------- openings ----------
@@ -630,8 +759,9 @@ export default function App() {
       persistMeasurements(pageNum, next);
       setPendingOpening(null);
       showToast(`Added ${letter}${n} — subtracts ${formatArea(sfM2, units)} from the page total.`);
+      maybeShowRenameTip();
     },
-    [pendingOpening, plan, measurements, pageNum, persistMeasurements, openingSizes, units, showToast],
+    [pendingOpening, plan, measurements, pageNum, persistMeasurements, openingSizes, units, showToast, maybeShowRenameTip],
   );
 
   const setOpeningSf = useCallback(
@@ -937,7 +1067,7 @@ export default function App() {
   const acceptQa = useCallback(() => {
     if (!qa || !qaValues || !scale || !plan) return;
     const composite = qaComposite(qa);
-    const tint: [number, number, number, number] = [26, 102, 204, 70];
+    const tint: [number, number, number, number] = [13, 138, 79, 70]; // rooms = green
     const redTint: [number, number, number, number] = [214, 48, 49, 110];
     const full = maskToCanvas(composite, tint);
     const cutoutUnion = new Uint8Array(qa.base.data.length);
@@ -978,8 +1108,9 @@ export default function App() {
     };
     persistMeasurements(pageNum, [...(measurements[pageNum] ?? []), m]);
     showToast(`Saved ${m.label}: ${formatArea(m.floorAreaM2, units)}, walls ≈ ${formatArea(m.wallAreaM2, units)}.`);
+    maybeShowRenameTip();
     cancelQa();
-  }, [qa, qaValues, scale, plan, pageNum, measurements, persistMeasurements, units, showToast, cancelQa, qaComposite]);
+  }, [qa, qaValues, scale, plan, pageNum, measurements, persistMeasurements, units, showToast, cancelQa, qaComposite, maybeShowRenameTip]);
 
   // ---------- navigation & modes ----------
   const gotoPage = useCallback(
@@ -1217,6 +1348,54 @@ export default function App() {
     return computeQuote(totals, priceBook);
   }, [quotePages, priceBook]);
 
+  // Optional: draw measurement names on the plan instead of just lengths.
+  const [showNamesOnPlan, setShowNamesOnPlan] = useState(false);
+
+  // ---------- page properties (custom labels + rotation) ----------
+  const pageLabelOf = useCallback((n: number) => pageLabel(pagePropsMap, n), [pagePropsMap]);
+  const currentPageRotation = pageRotation(pagePropsMap, pageNum);
+  const [pageRenameOpen, setPageRenameOpen] = useState(false);
+  const [pageRenameText, setPageRenameText] = useState('');
+
+  const setPagePropsFor = useCallback(
+    (page: number, patch: { label?: string; rotate?: PageRotation }) => {
+      if (!plan) return;
+      const next: PagePropsMap = { ...pagePropsMap, [page]: { ...pagePropsMap[page], ...patch } };
+      setPagePropsMap(next);
+      savePageProps(plan.fingerprint, next);
+    },
+    [plan, pagePropsMap],
+  );
+
+  const rotatePage = useCallback(() => {
+    const next = ((pageRotation(pagePropsMap, pageNum) + 90) % 360) as PageRotation;
+    setPagePropsFor(pageNum, { rotate: next });
+  }, [pagePropsMap, pageNum, setPagePropsFor]);
+
+  /** Panel page list: the project's selected pages with labels + items. */
+  const panelPages = useMemo(() => {
+    if (!plan) return [];
+    const idx =
+      selectedPages.length > 0 ? selectedPages : Array.from({ length: plan.numPages }, (_, i) => i);
+    return idx.map((i) => {
+      const n = i + 1;
+      return { pageNum: n, label: pageLabel(pagePropsMap, n), items: measurements[n] ?? [] };
+    });
+  }, [plan, selectedPages, pagePropsMap, measurements]);
+
+  /** Jump straight to an original 1-based page number (panel cross-page rows). */
+  const gotoPageDirect = useCallback((n: number) => {
+    setPageNum(n);
+    setSelectedId(null);
+  }, []);
+
+  // Quote breakdown grouping: whole project (default) / per room / per page.
+  const [quoteGrouping, setQuoteGrouping] = useState<QuoteGrouping>('project');
+  const quoteGroups = useMemo(
+    () => computeGroups(quotePages, priceBook, quoteGrouping, pageLabelOf),
+    [quotePages, priceBook, quoteGrouping, pageLabelOf],
+  );
+
   // ---------- card actions + invoice ----------
   const openProjectWithQuote = useCallback(
     async (id: string) => {
@@ -1322,9 +1501,10 @@ export default function App() {
       pages: quotePages,
       quote,
       priceBook,
+      groups: quoteGroups,
     });
     showToast('Quote spreadsheet downloaded.');
-  }, [plan, quotePages, quote, priceBook, showToast]);
+  }, [plan, quotePages, quote, priceBook, quoteGroups, showToast]);
 
   const areaOverlays = useMemo<AreaOverlay[]>(() => {    const list: AreaOverlay[] = [];
     for (const m of pageMeasurements) {
@@ -1399,8 +1579,63 @@ export default function App() {
               </button>
             ))}
           </span>
+          <span className="preset-chips">
+            {presets.map((p) =>
+              renamingPresetId === p.id ? (
+                <input
+                  key={p.id}
+                  className="preset-rename"
+                  autoFocus
+                  value={presetNameText}
+                  onChange={(e) => setPresetNameText(e.target.value)}
+                  onBlur={() => {
+                    renamePreset(p.id, presetNameText);
+                    setRenamingPresetId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      renamePreset(p.id, presetNameText);
+                      setRenamingPresetId(null);
+                    }
+                    if (e.key === 'Escape') setRenamingPresetId(null);
+                  }}
+                />
+              ) : (
+                <button
+                  key={p.id}
+                  className="preset-chip"
+                  title="Use this preset — double-click to rename it"
+                  onClick={() => applyPreset(p)}
+                  onDoubleClick={() => {
+                    setRenamingPresetId(p.id);
+                    setPresetNameText(p.name);
+                  }}
+                >
+                  {p.name}
+                  <span
+                    className="preset-chip-x"
+                    title="Delete this preset"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deletePreset(p.id);
+                    }}
+                  >
+                    ✕
+                  </span>
+                </button>
+              ),
+            )}
+            {presets.length < MAX_PRESETS ? (
+              <button className="unit-switch save-preset" onClick={saveCurrentAsPreset}>
+                Save as preset
+              </button>
+            ) : (
+              <span className="preset-full-note">Preset list full — delete one with its ✕</span>
+            )}
+          </span>
+          {' '}
           {measureKind === 'ceiling'
-            ? 'Click the corners of the ceiling, double-click to close it. Drag moves the plan.'
+            ? 'Click the corners of the ceiling, double-click to close it — or Alt+drag a quick box. Drag moves the plan.'
             : measureKind === 'trim'
               ? 'Click along the baseboard or casing, double-click to finish. Drag moves the plan.'
               : 'Click to start a line, keep clicking to add segments, double-click to finish. Drag always moves the plan. Ctrl+Z undoes.'}
@@ -1432,7 +1667,15 @@ export default function App() {
         </StepBar>
       );
     } else {
-      stepBar = (
+      stepBar = showRenameTip ? (
+        <StepBar kind="info" title="Tip">
+          Double-click a name in the <strong>Measurements</strong> list to rename it — e.g.{' '}
+          <em>“North wall, office 3”</em>. Names show up on the quote and the Excel export.{' '}
+          <button className="unit-switch" onClick={() => setShowRenameTip(false)}>
+            OK
+          </button>
+        </StepBar>
+      ) : (
         <StepBar kind="success" title="Step 3 of 3 · Measure">
           Scale set! Use <strong>Measure</strong> for lengths or <strong>Quick Area</strong> for a
           rough room square footage.
@@ -1503,7 +1746,50 @@ export default function App() {
         onOpenQuote={() => setQuoteOpen(true)}
         onOpenPages={() => setShowPagePicker('edit')}
         onGoHome={() => void goHome()}
+        pageCustomLabel={pagePropsMap[pageNum]?.label ?? ''}
+        onRenamePage={() => {
+          setPageRenameText(pagePropsMap[pageNum]?.label ?? '');
+          setPageRenameOpen(true);
+        }}
+        onRotatePage={rotatePage}
       />
+      )}
+      {pageRenameOpen && (
+        <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setPageRenameOpen(false)}>
+          <div className="modal page-rename-modal">
+            <div className="modal-title">Name this page</div>
+            <p className="modal-text">
+              Shows in the page list, the Measurements panel, and the per-page quote — e.g.{' '}
+              <em>“A3 – Party Room”</em>. Leave it blank to go back to “Page {pageNum}”.
+            </p>
+            <input
+              className="np-input big"
+              autoFocus
+              placeholder={`Page ${pageNum}`}
+              value={pageRenameText}
+              onChange={(e) => setPageRenameText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setPagePropsFor(pageNum, { label: pageRenameText.trim() });
+                  setPageRenameOpen(false);
+                }
+                if (e.key === 'Escape') setPageRenameOpen(false);
+              }}
+            />
+            <div className="modal-actions">
+              <button className="tool" onClick={() => setPageRenameOpen(false)}>Cancel</button>
+              <button
+                className="tool go-button"
+                onClick={() => {
+                  setPagePropsFor(pageNum, { label: pageRenameText.trim() });
+                  setPageRenameOpen(false);
+                }}
+              >
+                Save name
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {plan && stepBar}
       {plan && (
@@ -1521,9 +1807,14 @@ export default function App() {
           units={units}
           measurements={pageMeasurements}
           selectedId={selectedId}
+          showNamesOnPlan={showNamesOnPlan}
+          measureKind={measureKind}
+          rotation={currentPageRotation}
+          dimHighlight={dimGuess && !dimEdited ? dimGuess.box : null}
           areaOverlays={areaOverlays}
           qaDrawing={qa?.sub === 'draw'}
           onTwoPoints={handleTwoPoints}
+          onProbeDimension={probeDimension}
           onFirstPointPlaced={() => setFirstPointPlaced(true)}
           onCancelIntent={() => {
             resetInteraction();
@@ -1554,6 +1845,9 @@ export default function App() {
         {plan && panelOpen && (
           <MeasurementsPanel
             items={pageMeasurements}
+            pages={panelPages}
+            currentPage={pageNum}
+            onGotoPage={gotoPageDirect}
             units={units}
             selectedId={selectedId}
             defaultHeightM={defaultHeightM}
@@ -1575,6 +1869,8 @@ export default function App() {
             }}
             onSelect={setSelectedId}
             onRename={renameMeasurement}
+            showNamesOnPlan={showNamesOnPlan}
+            onToggleShowNames={() => setShowNamesOnPlan((v) => !v)}
             onSetHeight={setMeasurementHeight}
             onSetOpeningSf={setOpeningSf}
             onSetOpeningAssignment={setOpeningAssignment}
@@ -1662,6 +1958,9 @@ export default function App() {
       {flow.step === 'enterLength' && (
         <CalibrationModal
           units={units}
+          readFromPlan={dimGuess}
+          readEdited={dimEdited}
+          onEditRead={() => setDimEdited(true)}
           onSubmit={handleCalibrationSubmit}
           onCancel={cancelFlow}
           onSwitchUnits={toggleUnits}
@@ -1767,6 +2066,9 @@ export default function App() {
       {quoteOpen && (
         <QuoteView
           quote={quote}
+          grouping={quoteGrouping}
+          groups={quoteGroups}
+          onGroupingChange={setQuoteGrouping}
           onExport={handleExportQuote}
           onCreateInvoice={startInvoice}
           onClose={() => setQuoteOpen(false)}

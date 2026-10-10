@@ -36,6 +36,8 @@ export function renderPageRegion(
   rect: PageRect,
   scale: number,
   taskSlot: { current: RenderTask | null },
+  /** Extra clockwise rotation (degrees) on top of the page's own. */
+  rotation = 0,
 ): { promise: Promise<RenderedRegion>; task: RenderTask } {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(rect.qw * scale));
@@ -47,6 +49,7 @@ export function renderPageRegion(
     scale,
     offsetX: -rect.qx * scale,
     offsetY: -rect.qy * scale,
+    rotation: (page.rotate + rotation) % 360,
   });
   const task = page.render({
     canvasContext: ctx,

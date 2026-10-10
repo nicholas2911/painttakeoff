@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { Measurement, OpeningMeasurement } from '../measure/measureStore';
 import type { PriceBook } from './priceBook';
-import type { Quote } from './quote';
+import type { Quote, QuoteGroup } from './quote';
 import { pageTotals, fmtMoney } from './quote';
 
 const SQFT_PER_M2 = 10.7639;
@@ -135,12 +135,55 @@ function quoteRows(quote: Quote, pb: PriceBook): (string | number)[][] {
   ];
 }
 
+/** Breakdown sheet: one block per group (room/page/whole project) with a
+ *  subtotal per group and a grand total that matches the Quote sheet. */
+function breakdownRows(groups: QuoteGroup[], quote: Quote): (string | number)[][] {
+  const rows: (string | number)[][] = [
+    ['PaintTakeoff quote — breakdown'],
+    [],
+    ['Group', 'Where', 'Item', 'Qty', 'Unit', 'Labour hours', 'Gallons', 'Cost', 'Price'],
+  ];
+  const catRow = (g: QuoteGroup, item: string, unit: string, c: QuoteGroup['walls']) => [
+    g.title,
+    g.detail ?? '',
+    item,
+    +c.qty.toFixed(1),
+    unit,
+    +c.hours.toFixed(2),
+    +c.gallons.toFixed(2),
+    fmtMoney(c.cost),
+    fmtMoney(c.price),
+  ];
+  for (const g of groups) {
+    if (g.walls.qty !== 0) rows.push(catRow(g, 'Walls (net)', 'SF', g.walls));
+    if (g.ceilings.qty !== 0) rows.push(catRow(g, 'Ceilings', 'SF', g.ceilings));
+    if (g.trim.qty !== 0) rows.push(catRow(g, 'Trim', 'LF', g.trim));
+    if (g.heavyPrepCost !== 0)
+      rows.push([
+        g.title,
+        g.detail ?? '',
+        'Heavy prep adder',
+        '',
+        '',
+        '',
+        '',
+        fmtMoney(g.heavyPrepCost),
+        fmtMoney(g.totalPrice - (g.walls.price + g.ceilings.price + g.trim.price)),
+      ]);
+    rows.push([`${g.title} — subtotal`, '', '', '', '', '', '', fmtMoney(g.totalCost), fmtMoney(g.totalPrice)]);
+    rows.push([]);
+  }
+  rows.push(['GRAND TOTAL', '', '', '', '', `${quote.totalHours.toFixed(2)} hr`, `${quote.totalGallons.toFixed(2)} gal`, fmtMoney(quote.totalCost), fmtMoney(quote.totalPrice)]);
+  return rows;
+}
+
 /** Builds the workbook and triggers a browser download. */
 export function exportQuoteXlsx(opts: {
   fileName: string;
   pages: PageInput[];
   quote: Quote;
   priceBook: PriceBook;
+  groups: QuoteGroup[];
 }): void {
   const wb = XLSX.utils.book_new();
   const ws1 = XLSX.utils.aoa_to_sheet(measurementRows(opts.pages));
@@ -149,5 +192,8 @@ export function exportQuoteXlsx(opts: {
   const ws2 = XLSX.utils.aoa_to_sheet(quoteRows(opts.quote, opts.priceBook));
   ws2['!cols'] = [{ wch: 24 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 34 }];
   XLSX.utils.book_append_sheet(wb, ws2, 'Quote');
+  const ws3 = XLSX.utils.aoa_to_sheet(breakdownRows(opts.groups, opts.quote));
+  ws3['!cols'] = [{ wch: 26 }, { wch: 26 }, { wch: 16 }, { wch: 10 }, { wch: 6 }, { wch: 13 }, { wch: 9 }, { wch: 12 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws3, 'Breakdown');
   XLSX.writeFile(wb, opts.fileName);
 }

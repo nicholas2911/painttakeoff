@@ -34,10 +34,24 @@ export function LengthBoxes(props: {
   units: UnitSystem;
   onValue(meters: number | null): void;
   onSwitchUnits(): void;
+  /** Pre-fill the boxes (e.g. a dimension read off the plan). */
+  initialMeters?: number | null;
+  /** The user typed into a box (vs. accepting a prefill). */
+  onUserEdit?(): void;
 }) {
-  const [feet, setFeet] = useState('');
-  const [inches, setInches] = useState('');
-  const [mmText, setMmText] = useState('');
+  const [feet, setFeet] = useState(() => {
+    if (props.initialMeters == null) return '';
+    return String(Math.floor(props.initialMeters / 0.3048));
+  });
+  const [inches, setInches] = useState(() => {
+    if (props.initialMeters == null) return '';
+    const totalIn = props.initialMeters / 0.0254;
+    const rem = totalIn - Math.floor(totalIn / 12) * 12;
+    return String(Math.round(rem * 8) / 8);
+  });
+  const [mmText, setMmText] = useState(() =>
+    props.initialMeters == null ? '' : String(Math.round(props.initialMeters * 1000)),
+  );
 
   let parsed: number | null = null;
   let touched = false;
@@ -74,7 +88,10 @@ export function LengthBoxes(props: {
               value={feet}
               inputMode="decimal"
               placeholder="24"
-              onChange={(e) => setFeet(e.target.value)}
+              onChange={(e) => {
+                setFeet(e.target.value);
+                props.onUserEdit?.();
+              }}
             />
             <span>Feet</span>
           </label>
@@ -83,7 +100,10 @@ export function LengthBoxes(props: {
               value={inches}
               inputMode="text"
               placeholder={`6 1/2`}
-              onChange={(e) => setInches(e.target.value)}
+              onChange={(e) => {
+                setInches(e.target.value);
+                props.onUserEdit?.();
+              }}
             />
             <span>Inches</span>
           </label>
@@ -96,7 +116,10 @@ export function LengthBoxes(props: {
               value={mmText}
               inputMode="decimal"
               placeholder="2520"
-              onChange={(e) => setMmText(e.target.value)}
+              onChange={(e) => {
+                setMmText(e.target.value);
+                props.onUserEdit?.();
+              }}
             />
             <span>Millimetres</span>
           </label>
@@ -130,18 +153,48 @@ export function CalibrationModal(props: {
   onSubmit(meters: number): void;
   onCancel(): void;
   onSwitchUnits(): void;
+  /** A dimension read off the plan's text layer (prefill, never auto-accept). */
+  readFromPlan?: { meters: number; text: string } | null;
+  /** The user typed over the read value. */
+  readEdited?: boolean;
+  onEditRead?(): void;
 }) {
   const [meters, setMeters] = useState<number | null>(null);
   return (
     <ModalShell title="Set the scale" onCancel={props.onCancel}>
       <p className="modal-text">How long is that line in real life?</p>
+      {props.readFromPlan ? (
+        props.readEdited ? (
+          <p className="modal-text dim-read dim-edited">
+            Edited manually — the read was “{props.readFromPlan.text}” (
+            {formatLength(props.readFromPlan.meters, props.units)}).
+          </p>
+        ) : (
+          <p className="modal-text dim-read">
+            Read <strong>“{props.readFromPlan.text}”</strong> from the plan (highlighted) — check
+            it, then confirm:{' '}
+            <strong>{formatLength(props.readFromPlan.meters, props.units)}</strong>.
+          </p>
+        )
+      ) : (
+        <p className="modal-text dim-tip">
+          Tip: while picking the two ends, you can click the written dimension on the plan
+          itself — we'll read it and fill this in.
+        </p>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (meters !== null && meters > 0) props.onSubmit(meters);
         }}
       >
-        <LengthBoxes units={props.units} onValue={setMeters} onSwitchUnits={props.onSwitchUnits} />
+        <LengthBoxes
+          units={props.units}
+          onValue={setMeters}
+          onSwitchUnits={props.onSwitchUnits}
+          initialMeters={props.readFromPlan?.meters ?? null}
+          onUserEdit={props.onEditRead}
+        />
         <div className="modal-actions">
           <button type="button" className="tool" onClick={props.onCancel}>
             Cancel

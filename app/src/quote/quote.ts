@@ -97,6 +97,21 @@ function paintMath(
   if (netSF <= 0) {
     return { qty: 0, gallons: 0, hours: 0, labourCost: 0, materialCost: 0, cost: 0, price: 0 };
   }
+  return paintMathLinear(netSF, productionPerHr, pb, sprayed);
+}
+
+/** Same math as paintMath but linear through zero — used by grouped
+ *  breakdowns where a group can hold a negative deduction bucket and the
+ *  group prices must still sum exactly to the grand total. */
+function paintMathLinear(
+  netSF: number,
+  productionPerHr: number,
+  pb: PriceBook,
+  sprayed: boolean,
+): QuoteCategory {
+  if (netSF === 0) {
+    return { qty: 0, gallons: 0, hours: 0, labourCost: 0, materialCost: 0, cost: 0, price: 0 };
+  }
   const coats = Math.max(1, Math.round(pb.coats));
   const materialSF = netSF * coats;
   const waste = sprayed ? pb.wasteSprayed : pb.wasteRolled;
@@ -193,4 +208,156 @@ export function computeQuote(
 }
 
 export const fmtMoney = (x: number): string =>
-  `$${x.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `${x < 0 ? '−' : ''}$${Math.abs(x).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// ---------- grouped breakdowns (per room / per page) ----------
+
+export type QuoteGrouping = 'project' | 'room' | 'page';
+
+export interface QuotePageInput {
+  pageNum: number;
+  items: Measurement[];
+  defaultHeightM: number;
+  deduct: boolean;
+}
+
+export interface QuoteGroup {
+  id: string;
+  /** Measurement label ("North wall"), "Page 5", or "Whole project". */
+  title: string;
+  /** Extra context, e.g. which page a room sits on. */
+  detail?: string;
+  walls: QuoteCategory;
+  ceilings: QuoteCategory;
+  trim: QuoteCategory;
+  heavyPrepCost: number;
+  totalCost: number;
+  totalPrice: number;
+}
+
+/** Price a bundle of quantities. Linear in every input, so any exact
+ *  partition of the project's quantities prices to exactly the grand total. */
+function priceQuantities(
+  netWallM2: number,
+  ceilingM2: number,
+  trimM: number,
+  pb: PriceBook,
+): Omit<QuoteGroup, 'id' | 'title' | 'detail'> {
+  const netWallSF = netWallM2 * SQFT_PER_M2;
+  const walls = paintMathLinear(netWallSF, pb.production[pb.wallMethod], pb, pb.wallMethod === 'spray');
+  const ceilings = paintMathLinear(ceilingM2 * SQFT_PER_M2, pb.production.rollOnly, pb, false);
+  const trimCost = trimM * FT_PER_M * pb.trimRate;
+  const trim: QuoteCategory = {
+    qty: trimM * FT_PER_M,
+    gallons: 0,
+    hours: 0,
+    labourCost: trimCost,
+    materialCost: 0,
+    cost: trimCost,
+    price: trimCost * (1 + pb.margin),
+  };
+  const heavyPrepCost = pb.heavyPrep ? netWallSF * pb.heavyPrepAdder : 0;
+  return {
+    walls,
+    ceilings,
+    trim,
+    heavyPrepCost,
+    totalCost: walls.cost + ceilings.cost + trim.cost + heavyPrepCost,
+    totalPrice: walls.price + ceilings.price + trim.price + heavyPrepCost * (1 + pb.margin),
+  };
+}
+
+const EPS = 1e-9;
+
+/**
+ * Break the quote into groups: one per page (sheet), or one per named
+ * measurement/room. Openings stay where they were assigned — room-assigned
+ * openings deduct inside that room's group; page-level openings land in the
+ * page's group (per-page mode) or in a "not tied to a room" leftover group
+ * (per-room mode), so group subtotals always sum exactly to the grand total.
+ */
+export function computeGroups(
+  pages: QuotePageInput[],
+  pb: PriceBook,
+  grouping: QuoteGrouping,
+  labelOfPage?: (pageNum: number) => string,
+): QuoteGroup[] {
+  const pageName = (n: number) => labelOfPage?.(n) ?? `Page ${n}`;
+  if (grouping === 'project') {
+    const t = pages.reduce(
+      (acc, pg) => {
+        const pt = pageTotals(pg.items, pg.defaultHeightM, pg.deduct);
+        return {
+          netWallM2: acc.netWallM2 + pt.netWallM2,
+          ceilingM2: acc.ceilingM2 + pt.ceilingM2,
+          trimM: acc.trimM + pt.trimM,
+        };
+      },
+      { netWallM2: 0, ceilingM2: 0, trimM: 0 },
+    );
+    return [{ id: 'all', title: 'Whole project', ...priceQuantities(t.netWallM2, t.ceilingM2, t.trimM, pb) }];
+  }
+
+  const groups: QuoteGroup[] = [];
+  for (const pg of pages) {
+    if (grouping === 'page') {
+      const t = pageTotals(pg.items, pg.defaultHeightM, pg.deduct);
+      groups.push({
+        id: `page-${pg.pageNum}`,
+        title: pageName(pg.pageNum),
+        ...priceQuantities(t.netWallM2, t.ceilingM2, t.trimM, pb),
+      });
+      continue;
+    }
+
+    // per-room: one group per wall / room / ceiling / trim measurement.
+    let accountedNetWallM2 = 0;
+    for (const m of pg.items) {
+      if (m.kind === 'opening') continue;
+      let netWallM2 = 0;
+      let ceilingM2 = 0;
+      let trimM = 0;
+      if (m.kind === 'length' && (m.purpose ?? 'wall') === 'wall') {
+        const gross = m.totalMeters * (m.wallHeightM ?? pg.defaultHeightM);
+        const openings = pg.deduct
+          ? pg.items
+              .filter((o): o is OpeningMeasurement => o.kind === 'opening' && o.assignedTo === m.id)
+              .reduce((s, o) => s + o.sfM2, 0)
+          : 0;
+        netWallM2 = gross - openings;
+      } else if (m.kind === 'area') {
+        const gross = m.perimeterM * m.wallHeightM;
+        const openings = pg.deduct
+          ? pg.items
+              .filter((o): o is OpeningMeasurement => o.kind === 'opening' && o.assignedTo === m.id)
+              .reduce((s, o) => s + o.sfM2, 0)
+          : 0;
+        netWallM2 = gross - openings;
+      } else if (m.kind === 'ceiling') {
+        ceilingM2 = m.areaM2;
+      } else if (m.kind === 'length' && m.purpose === 'trim') {
+        trimM = m.totalMeters;
+      }
+      accountedNetWallM2 += netWallM2;
+      groups.push({
+        id: m.id,
+        title: m.label,
+        detail: pageName(pg.pageNum),
+        ...priceQuantities(netWallM2, ceilingM2, trimM, pb),
+      });
+    }
+    // Whatever the named rows don't cover — page-level (unassigned) openings,
+    // and the page-level clamp — goes in a leftover group so the sum holds.
+    const pageNet = pageTotals(pg.items, pg.defaultHeightM, pg.deduct).netWallM2;
+    const leftover = pageNet - accountedNetWallM2;
+    if (Math.abs(leftover) > EPS) {
+      groups.push({
+        id: `page-${pg.pageNum}-rest`,
+        title: 'Not tied to a room',
+        detail: `${pageName(pg.pageNum)} — unassigned deductions`,
+        ...priceQuantities(leftover, 0, 0, pb),
+      });
+    }
+  }
+  return groups;
+}

@@ -47,9 +47,13 @@ check('hint jumps into set-scale mode', (await barText())?.includes('click 1 of 
 const viewer = page.locator('.viewer');
 const box = await viewer.boundingBox();
 const cx = box.x + 750, cy = box.y + 450;
-await page.mouse.click(cx - 100, cy - 60);
+// note: calibrate clicks on digit-ish TEXT are eaten by click-a-dimension
+// (v0.7.2) — these spots are clear of the sheet's text
+await page.mouse.click(cx - 100, cy + 150);
+// the click-a-dimension probe (text layer lookup) is async — give it a beat
+await page.waitForTimeout(500);
 check('after first click: click 2 of 2', (await barText())?.includes('click 2 of 2'));
-await page.mouse.click(cx + 100, cy - 60);
+await page.mouse.click(cx + 100, cy + 150);
 await page.waitForSelector('.modal');
 check('calibration modal title', (await page.locator('.modal-title').textContent()) === 'Set the scale');
 

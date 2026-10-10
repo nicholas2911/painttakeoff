@@ -157,16 +157,27 @@ toggle; a "?" button lists the shortcuts.
   a quote per the spec's quantity model — net wall SF (after openings) →
   gallons (material SF ÷ coverage × waste), labour hours (coats with
   second-coat factor + prep share), cost, and price = cost × (1+margin).
-  Ceilings use roll-only production; trim is priced per LF. The view shows
-  per-category breakdowns, paint to buy, labour, and the big **QUOTE PRICE**.
+  Ceilings use roll-only production; trim is priced per LF. A grouping
+  toggle — **Whole project | Per room | Per page** — switches between the
+  aggregated view and grouped breakdown blocks: one block per named
+  measurement/room (custom names shown, auto labels like "Wall 1"
+  otherwise) or one per PDF page (original sheet number), each with net
+  SF, gallons, labour hours, cost, and a group subtotal. Openings stay
+  where they were assigned — room-assigned openings deduct inside that
+  room's block; page-level (unassigned) openings land in a "Not tied to a
+  room" block in per-room mode. Group subtotals always sum exactly to the
+  grand total (the pricing math is linear in every quantity). The view
+  still shows paint to buy, labour, and the big **QUOTE PRICE**.
 - **Sanity cross-metrics** on every quote: price per SF of wall, price per
   SF of floor (measured room floors if available, else wall ÷ 3 with the
   assumption shown), labour share, gallons total. Out-of-band values get
   an amber plain-English warning ("check your scale and ceiling heights").
-- **Export to Excel** (SheetJS): a two-sheet `.xlsx` — Measurements (one
-  row per measurement per page + page totals) and Quote (line items,
-  cross-metrics, price-book snapshot for audit), named
-  `<plan>-quote-<date>.xlsx`.
+- **Export to Excel** (SheetJS): a three-sheet `.xlsx` — Measurements (one
+  row per measurement per page + page totals, custom names included),
+  Quote (line items, cross-metrics, price-book snapshot for audit), and
+  Breakdown (grouped rows matching the quote view's current grouping —
+  whole project / per room / per page — with a subtotal per group and a
+  grand total), named `<plan>-quote-<date>.xlsx`.
 - **Create invoice** (from the Quote view): a prefilled, fully editable
   invoice — project/company header with logo slot, auto-incrementing
   invoice number (INV-0001…), line items from the quote breakdown,
@@ -187,7 +198,8 @@ toggle; a "?" button lists the shortcuts.
   finishes, **Ctrl+Z** undoes a point (or, when not drawing, removes the
   most recent measurement on the page), Esc cancels. **Left-drag always
   pans the plan, in every mode.** Ceiling polygons close and compute area
-  on double-click. Finished measurements stay drawn and persist per page
+  on double-click — or **Alt+drag a rectangle** for a quick box ceiling.
+  Finished measurements stay drawn and persist per page
   (`pt:v1:measure:*`); pre-0.4 items migrate as kind=wall.
 - **Openings** mode (`O`): click a door/window on the plan, pick
   **Door / Window / Slider** (defaults 21 / 15 / 40 sq ft — editable in
@@ -200,8 +212,46 @@ toggle; a "?" button lists the shortcuts.
   ceiling heights, wall area), Rooms (Quick Area), Ceilings, Trim,
   Openings (sizes, assignment, deduct toggle). Sticky totals footer:
   **Gross wall area − Openings = Net wall area** (the quote number, shown
-  prominently), plus trim LF and ceiling SF. Rename on click, trash per
-  row, Delete key for the selected row.
+  prominently), plus trim LF and ceiling SF. Rename on click or
+  double-click (pencil hint on hover, hint placeholder in the field), a
+  one-time guidance-bar tip after the first measurement points this out,
+  and a **"Show names on the plan"** toggle draws names (with sizes) as
+  the canvas labels. Custom names flow into the per-room quote breakdown
+  and the Excel export. Trash per row, Delete key for the selected row.
+- **Color language**: every measurement kind has a fixed color, on the
+  plan and in the panel (per-row dots + a legend at the panel bottom) —
+  blue = walls, violet = ceilings, amber = trim, green = Quick Area
+  rooms, red family = openings. Colors derive from the kind at render
+  time, so saved measurements pick them up with no data change.
+- **Panel filters**: kind chips (All | Walls | Ceilings | Trim | Rooms |
+  Openings) and a page dropdown (All pages | every project page by name).
+  Filtering narrows the rows and adds a plain-English filtered total
+  ("Showing walls only — total wall area X"); the grand totals stay
+  visible but muted. Cross-page rows jump to their page when clicked.
+  Filter state is session-only.
+- **Tool presets**: in Measure mode, "Save as preset" stores the current
+  kind + ceiling height as a one-tap chip (auto-named "Wall · 8 ft",
+  double-click a chip to rename, ✕ deletes, cap of 8). Persisted globally
+  (`pt:v1:presets`).
+- **Page tools**: the ✎ next to the page input names a sheet (e.g.
+  "A3 – Party Room") — shown in the toolbar, the panel's page dropdown,
+  and per-page quote groups. The **Fit ▾** menu's "Rotate page 90°"
+  rotates the sheet; measurements, openings, Quick Area masks, and scale
+  stay attached (stored coordinates are transformed at render/input time;
+  raster work stays in the original orientation). Both persist per
+  original page in `pt:v1:pageprops:*`.
+- **Click-a-dimension calibration**: in Set Scale mode, clicking the
+  written dimension on a vector plan (e.g. "12270" or 24'-6") reads it
+  via the PDF text layer and prefills the length boxes — the user always
+  confirms; scanned PDFs silently stay manual. Misreads are hard to miss:
+  the exact text item gets an orange highlight box on the plan while the
+  modal is open, the modal quotes the raw string ("Read "12270" from the
+  plan (highlighted)…"), typing over the value clears the highlight and
+  switches the line to "Edited manually", and implausible reads
+  (< 100 mm or > 100 m — or digit text that isn't a dimension, like a
+  page number or "A3") are rejected with a "that didn't look like a
+  dimension" toast instead of prefilling. The unverified badge +
+  double-check prompt after Set Scale remains the second net.
 - **Quick Area** mode (`A`): click inside a room — a flood fill on a
   downscaled raster of the page estimates floor area and a rough perimeter.
   The barrier map is **cleaned** first: connected-component analysis keeps

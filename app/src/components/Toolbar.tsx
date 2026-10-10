@@ -58,6 +58,10 @@ interface ToolbarProps {
   onOpenQuote(): void;
   onOpenPages(): void;
   onGoHome(): void;
+  /** Custom label for the current page ("" = default "Page N"). */
+  pageCustomLabel: string;
+  onRenamePage(): void;
+  onRotatePage(): void;
 }
 
 export default function Toolbar(props: ToolbarProps) {
@@ -156,7 +160,16 @@ export default function Toolbar(props: ToolbarProps) {
             }}
           />{' '}
           of {numPages || '—'}
+          {props.pageCustomLabel && <em className="page-custom-label">{props.pageCustomLabel}</em>}
         </span>
+        <button
+          className="tool nav-tool page-edit"
+          disabled={!plan}
+          onClick={props.onRenamePage}
+          title="Name this page (e.g. A3 – Party Room)"
+        >
+          ✎
+        </button>
         <button
           className="tool nav-tool"
           disabled={!plan || pageNum >= numPages}
@@ -256,6 +269,14 @@ export default function Toolbar(props: ToolbarProps) {
                 }}
               >
                 Fit width
+              </button>
+              <button
+                onClick={() => {
+                  setFitOpen(false);
+                  props.onRotatePage();
+                }}
+              >
+                Rotate page 90°
               </button>
             </div>
           )}

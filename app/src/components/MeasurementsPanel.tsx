@@ -95,8 +95,20 @@ function HeightInput(props: {
   );
 }
 
+interface PanelPage {
+  pageNum: number;
+  label: string;
+  items: Measurement[];
+}
+
+type KindFilter = 'all' | 'walls' | 'ceilings' | 'trim' | 'rooms' | 'openings';
+
 interface PanelProps {
   items: Measurement[];
+  /** Every project page (1-based, labelled) with its measurements. */
+  pages: PanelPage[];
+  currentPage: number;
+  onGotoPage(pageNum: number): void;
   units: UnitSystem;
   selectedId: string | null;
   defaultHeightM: number;
@@ -107,6 +119,9 @@ interface PanelProps {
   onToggleDeduct(): void;
   onSelect(id: string | null): void;
   onRename(id: string, label: string): void;
+  /** Show measurement names as canvas labels on the plan. */
+  showNamesOnPlan: boolean;
+  onToggleShowNames(): void;
   onSetHeight(id: string, meters: number): void;
   onSetOpeningSf(id: string, m2: number): void;
   onSetOpeningAssignment(id: string, assignedTo: string | null): void;
@@ -136,28 +151,77 @@ export default function MeasurementsPanel(props: PanelProps) {
   const { items, units, deduct } = props;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  // Session-only filters. pageChoice null = follow the viewer's page.
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  const [pageChoice, setPageChoice] = useState<number | 'all' | null>(null);
+
+  const effPage = pageChoice ?? props.currentPage;
+  const multiPage = effPage !== props.currentPage;
+  const shownPages =
+    effPage === 'all'
+      ? props.pages.filter((p) => p.items.length > 0)
+      : props.pages.filter((p) => p.pageNum === effPage);
+
+  const kindOf = (m: Measurement): Exclude<KindFilter, 'all'> =>
+    m.kind === 'opening'
+      ? 'openings'
+      : m.kind === 'ceiling'
+        ? 'ceilings'
+        : m.kind === 'area'
+          ? 'rooms'
+          : (m.purpose ?? 'wall') === 'trim'
+            ? 'trim'
+            : 'walls';
+  const matches = (m: Measurement) => kindFilter === 'all' || kindOf(m) === kindFilter;
+
+  // Grand totals cover everything on the pages in view (unfiltered);
+  // the filtered totals below use only the rows that match the chips.
+  const shownItems = shownPages.flatMap((p) => p.items);
+  const grandOf = (list: Measurement[]) => {
+    const ws = list.filter((m) => kindOf(m) === 'walls');
+    const ts = list.filter((m) => kindOf(m) === 'trim');
+    const cs = list.filter((m) => kindOf(m) === 'ceilings');
+    const rs = list.filter((m) => kindOf(m) === 'rooms');
+    const os = list.filter((m): m is OpeningMeasurement => m.kind === 'opening');
+    const gross = [...ws, ...rs].reduce((s, m) => s + rowWallArea(m, props.defaultHeightM), 0);
+    const openM2 = os.reduce((s, m) => s + m.sfM2, 0);
+    return {
+      gross,
+      openM2,
+      openCount: os.length,
+      net: deduct ? Math.max(0, gross - openM2) : gross,
+      trim: ts.reduce((s, m) => s + (m.kind === 'length' ? m.totalMeters : 0), 0),
+      ceiling: cs.reduce((s, m) => s + (m.kind === 'ceiling' ? m.areaM2 : 0), 0),
+      floor: rs.reduce((s, m) => s + (m.kind === 'area' ? m.floorAreaM2 : 0), 0),
+    };
+  };
+  const grand = grandOf(shownItems);
+  const filtered = grandOf(shownItems.filter(matches));
 
   const walls = items.filter(
     (m) => m.kind === 'length' && (m.purpose ?? 'wall') === 'wall',
-  );
+  ).filter(matches);
   const trims = items.filter(
     (m) => m.kind === 'length' && m.purpose === 'trim',
-  );
-  const ceilings = items.filter((m) => m.kind === 'ceiling');
-  const rooms = items.filter((m) => m.kind === 'area');
+  ).filter(matches);
+  const ceilings = items.filter((m) => m.kind === 'ceiling').filter(matches);
+  const rooms = items.filter((m) => m.kind === 'area').filter(matches);
   const openings = items.filter(
     (m): m is OpeningMeasurement => m.kind === 'opening',
-  );
+  ).filter(matches);
 
-  const grossWall = [...walls, ...rooms].reduce(
-    (s, m) => s + rowWallArea(m, props.defaultHeightM),
-    0,
-  );
-  const openingsTotal = openings.reduce((s, m) => s + m.sfM2, 0);
-  const netWall = deduct ? Math.max(0, grossWall - openingsTotal) : grossWall;
-  const totalTrim = trims.reduce((s, m) => s + (m.kind === 'length' ? m.totalMeters : 0), 0);
-  const totalCeiling = ceilings.reduce((s, m) => s + (m.kind === 'ceiling' ? m.areaM2 : 0), 0);
-  const totalFloor = rooms.reduce((s, m) => s + (m.kind === 'area' ? m.floorAreaM2 : 0), 0);
+  const filterNote: string | null =
+    kindFilter === 'all'
+      ? null
+      : kindFilter === 'walls'
+        ? `Showing walls only — total wall area ${formatArea(filtered.gross, units)}`
+        : kindFilter === 'ceilings'
+          ? `Showing ceilings only — ${formatArea(filtered.ceiling, units)} of ceilings`
+          : kindFilter === 'trim'
+            ? `Showing trim only — ${formatLength(filtered.trim, units)} of trim`
+            : kindFilter === 'rooms'
+              ? `Showing rooms only — ${formatArea(filtered.floor, units)} of floor`
+              : `Showing openings only — ${filtered.openCount} opening${filtered.openCount === 1 ? '' : 's'} (${formatArea(filtered.openM2, units)})`;
 
   const commitRename = (id: string) => {
     const label = editText.trim();
@@ -165,11 +229,16 @@ export default function MeasurementsPanel(props: PanelProps) {
     setEditingId(null);
   };
 
-  const labelOf = (m: Measurement) =>
-    editingId === m.id ? (
+  const labelOf = (m: Measurement) => {
+    const startRename = () => {
+      setEditingId(m.id);
+      setEditText(m.label);
+    };
+    return editingId === m.id ? (
       <input
         className="mp-rename"
         autoFocus
+        placeholder="Name this — e.g. North wall, office 3"
         value={editText}
         onChange={(e) => setEditText(e.target.value)}
         onBlur={() => commitRename(m.id)}
@@ -182,16 +251,40 @@ export default function MeasurementsPanel(props: PanelProps) {
     ) : (
       <span
         className="mp-label"
-        title="Click the name to rename"
+        title="Click or double-click to rename"
         onClick={(e) => {
           e.stopPropagation();
-          setEditingId(m.id);
-          setEditText(m.label);
+          startRename();
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          startRename();
         }}
       >
+        {dotClass(m) !== '' && <span className={`mp-dot ${dotClass(m)}`} aria-hidden />}
         {m.label}
       </span>
     );
+  };
+
+  /** Color-dot class per kind — matches the canvas color language. */
+  const dotClass = (m: Measurement): string => {
+    if (m.kind === 'opening') return ''; // openings already have a typed dot
+    if (m.kind === 'ceiling') return 'ceiling';
+    if (m.kind === 'area') return 'room';
+    return (m.purpose ?? 'wall') === 'trim' ? 'trim' : 'wall';
+  };
+
+  /** One-line size for compact (cross-page) rows. */
+  const sizeOf = (m: Measurement): string => {
+    if (m.kind === 'length')
+      return (m.purpose ?? 'wall') === 'trim'
+        ? formatLength(m.totalMeters, units)
+        : formatArea(m.totalMeters * (m.wallHeightM ?? props.defaultHeightM), units);
+    if (m.kind === 'ceiling') return formatArea(m.areaM2, units);
+    if (m.kind === 'area') return formatArea(m.floorAreaM2, units);
+    return `−${formatArea(m.sfM2, units)}`;
+  };
 
   const rowShell = (m: Measurement, children: React.ReactNode) => (
     <div
@@ -263,12 +356,92 @@ export default function MeasurementsPanel(props: PanelProps) {
           onCommit={props.onDefaultHeightChange}
         />
       </div>
+      <label className="mp-names-toggle">
+        <input
+          type="checkbox"
+          checked={props.showNamesOnPlan}
+          onChange={props.onToggleShowNames}
+        />
+        <span>Show names on the plan</span>
+      </label>
+      <div className="mp-filters">
+        <div className="mp-chips">
+          {(
+            [
+              ['all', 'All'],
+              ['walls', 'Walls'],
+              ['ceilings', 'Ceilings'],
+              ['trim', 'Trim'],
+              ['rooms', 'Rooms'],
+              ['openings', 'Openings'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              className={`mp-chip ${kindFilter === value ? 'active' : ''}`}
+              onClick={() => setKindFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <select
+          className="mp-page-filter"
+          title="Which pages to list"
+          value={pageChoice === null ? String(props.currentPage) : String(pageChoice)}
+          onChange={(e) =>
+            setPageChoice(e.target.value === 'all' ? 'all' : parseInt(e.target.value, 10))
+          }
+        >
+          <option value="all">All pages</option>
+          {props.pages.map((p) => (
+            <option key={p.pageNum} value={p.pageNum}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="mp-list">
+        {multiPage ? (
+          <div className="mp-xpage">
+            {shownPages.every((p) => p.items.filter(matches).length === 0) && (
+              <div className="mp-empty">Nothing matches here yet.</div>
+            )}
+            {shownPages.map((p) => {
+              const rows = p.items.filter(matches);
+              if (rows.length === 0) return null;
+              return (
+                <div key={p.pageNum} className="mp-xpage-group">
+                  <div className="mp-xpage-title">{p.label}</div>
+                  {rows.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`mp-row mp-row-x ${m.id === props.selectedId ? 'selected' : ''}`}
+                      title="Jump to this measurement"
+                      onClick={() => {
+                        props.onGotoPage(p.pageNum);
+                        props.onSelect(m.id);
+                      }}
+                    >
+                      <span className={`mp-dot ${m.kind === 'opening' ? 'opening' : dotClass(m)}`} />
+                      <span className="mp-label-static">{m.label}</span>
+                      <span className="mp-value">{sizeOf(m)}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <>
         {items.length === 0 && (
           <div className="mp-empty">
             Nothing measured on this page yet. Use <strong>Measure</strong>,{' '}
             <strong>Quick Area</strong>, or <strong>Openings</strong>.
           </div>
+        )}
+        {items.length > 0 && [...walls, ...rooms, ...ceilings, ...trims, ...openings].length === 0 && (
+          <div className="mp-empty">Nothing matches this filter on this page.</div>
         )}
 
         {walls.length > 0 && (
@@ -382,35 +555,46 @@ export default function MeasurementsPanel(props: PanelProps) {
             )),
           )}
         </Section>
+          </>
+        )}
       </div>
 
-      {items.length > 0 && (
-        <div className="mp-totals">
+      {shownItems.length > 0 && (
+        <div className={`mp-totals ${kindFilter !== 'all' || multiPage ? 'muted' : ''}`}>
+          {filterNote && <div className="mp-filter-note">{filterNote}</div>}
           <div className="mp-total-row">
             <span>Gross wall area</span>
-            <strong>{formatArea(grossWall, units)}</strong>
+            <strong>{formatArea(grand.gross, units)}</strong>
           </div>
           <div className="mp-total-row">
-            <span>{deduct ? `Openings (${openings.length})` : 'Openings (paused)'}</span>
-            <strong>{deduct ? `− ${formatArea(openingsTotal, units)}` : '—'}</strong>
+            <span>{deduct ? `Openings (${grand.openCount})` : 'Openings (paused)'}</span>
+            <strong>{deduct ? `− ${formatArea(grand.openM2, units)}` : '—'}</strong>
           </div>
           <div className="mp-total-row grand">
             <span>Net wall area</span>
-            <strong>{formatArea(netWall, units)}</strong>
+            <strong>{formatArea(grand.net, units)}</strong>
           </div>
-          {(totalTrim > 0 || totalCeiling > 0 || totalFloor > 0) && (
+          {(grand.trim > 0 || grand.ceiling > 0 || grand.floor > 0) && (
             <div className="mp-total-row mp-total-minor">
               <span>
-                {totalTrim > 0 && <>Trim {formatLength(totalTrim, units)}</>}
-                {totalTrim > 0 && totalCeiling > 0 && ' · '}
-                {totalCeiling > 0 && <>Ceiling {formatArea(totalCeiling, units)}</>}
-                {(totalTrim > 0 || totalCeiling > 0) && totalFloor > 0 && ' · '}
-                {totalFloor > 0 && <>Floor {formatArea(totalFloor, units)}</>}
+                {grand.trim > 0 && <>Trim {formatLength(grand.trim, units)}</>}
+                {grand.trim > 0 && grand.ceiling > 0 && ' · '}
+                {grand.ceiling > 0 && <>Ceiling {formatArea(grand.ceiling, units)}</>}
+                {(grand.trim > 0 || grand.ceiling > 0) && grand.floor > 0 && ' · '}
+                {grand.floor > 0 && <>Floor {formatArea(grand.floor, units)}</>}
               </span>
             </div>
           )}
         </div>
       )}
+
+      <div className="mp-legend">
+        <span><i className="mp-dot wall" /> walls</span>
+        <span><i className="mp-dot ceiling" /> ceilings</span>
+        <span><i className="mp-dot trim" /> trim</span>
+        <span><i className="mp-dot room" /> rooms</span>
+        <span><i className="mp-dot opening" /> openings</span>
+      </div>
     </div>
   );
 }

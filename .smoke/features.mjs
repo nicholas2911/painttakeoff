@@ -203,7 +203,7 @@ console.log('  panel row:', areaRowText.trim());
 check('area row shows floor sq ft + wall area', areaRowText.includes('sq ft') && areaRowText.includes('floor'));
 check('net total present, no mixed units', (await page.locator('.mp-total-row.grand').textContent())?.includes('Net wall area'));
 
-// overlays persist across a page flip (blue room + red cutouts redraw)
+// overlays persist across a page flip (green room + red cutouts redraw)
 await page.keyboard.press('ArrowRight');
 await page.waitForTimeout(800);
 await page.keyboard.press('ArrowLeft');
@@ -211,14 +211,15 @@ await page.waitForTimeout(1000);
 const overlayBack = await page.evaluate(() => {
   const c = document.querySelector('.overlay-canvas');
   const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-  let blue = false, red = false;
+  let green = false, red = false;
   for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] > 20 && d[i + 2] > 150 && d[i + 2] > d[i] + 60) blue = true;
+    // rooms are green (v0.7.2 color language)
+    if (d[i + 3] > 20 && d[i + 1] > 100 && d[i + 1] > d[i] + 30 && d[i + 1] > d[i + 2] + 30) green = true;
     if (d[i + 3] > 20 && d[i] > 150 && d[i + 1] < 110 && d[i + 2] < 110) red = true;
   }
-  return { blue, red };
+  return { green, red };
 });
-check('room + red cutout overlays survive page flip', overlayBack.blue && overlayBack.red);
+check('room + red cutout overlays survive page flip', overlayBack.green && overlayBack.red);
 
 console.log('errors:', errors.length ? errors : 'none');
 await browser.close();

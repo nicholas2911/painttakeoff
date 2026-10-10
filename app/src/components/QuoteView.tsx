@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { Quote } from '../quote/quote';
+import type { Quote, QuoteGroup, QuoteGrouping } from '../quote/quote';
 import { fmtMoney } from '../quote/quote';
 
 function Row(props: { label: string; value: string; strong?: boolean }) {
@@ -14,6 +14,9 @@ function Row(props: { label: string; value: string; strong?: boolean }) {
 /** The quote: what all that measuring adds up to. */
 export default function QuoteView(props: {
   quote: Quote;
+  grouping: QuoteGrouping;
+  groups: QuoteGroup[];
+  onGroupingChange(g: QuoteGrouping): void;
   onExport(): void;
   onCreateInvoice(): void;
   onClose(): void;
@@ -38,25 +41,82 @@ export default function QuoteView(props: {
       </div>
     ) : null;
 
+  /** One group block in per-room / per-page mode. */
+  const groupBlock = (g: QuoteGroup) => (
+    <div className="quote-group" key={g.id}>
+      <div className="quote-group-title">
+        {g.title}
+        {g.detail && <span className="quote-group-detail">{g.detail}</span>}
+      </div>
+      {g.walls.qty !== 0 && (
+        <Row
+          label="Walls (net)"
+          value={`${Math.round(g.walls.qty).toLocaleString('en-CA')} SF · ${g.walls.gallons.toFixed(1)} gal · ${g.walls.hours.toFixed(1)} hr`}
+        />
+      )}
+      {g.ceilings.qty !== 0 && (
+        <Row
+          label="Ceilings"
+          value={`${Math.round(g.ceilings.qty).toLocaleString('en-CA')} SF · ${g.ceilings.gallons.toFixed(1)} gal · ${g.ceilings.hours.toFixed(1)} hr`}
+        />
+      )}
+      {g.trim.qty !== 0 && (
+        <Row label="Trim" value={`${Math.round(g.trim.qty).toLocaleString('en-CA')} LF`} />
+      )}
+      {g.heavyPrepCost !== 0 && <Row label="Heavy prep" value={fmtMoney(g.heavyPrepCost)} />}
+      <Row label="Cost" value={fmtMoney(g.totalCost)} />
+      <Row label="Group subtotal" value={fmtMoney(g.totalPrice)} strong />
+    </div>
+  );
+
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
       <div className="modal quote-modal">
         <div className="modal-title">Your quote</div>
 
-        <div className="quote-cats">
-          {cat('Walls', 'SF', q.walls)}
-          {cat('Ceilings', 'SF', q.ceilings)}
-          {cat('Trim', 'LF', q.trim)}
-          {q.heavyPrepCost > 0 && (
-            <div className="quote-cat">
-              <div className="quote-cat-title">Heavy prep</div>
-              <Row label="Adder" value={fmtMoney(q.heavyPrepCost)} strong />
-            </div>
-          )}
-          {q.walls.qty === 0 && q.ceilings.qty === 0 && q.trim.qty === 0 && (
-            <p className="modal-text">Nothing measured yet — measure some walls first.</p>
-          )}
+        <div className="quote-grouping" role="tablist" aria-label="Quote breakdown">
+          {(
+            [
+              ['project', 'Whole project'],
+              ['room', 'Per room'],
+              ['page', 'Per page'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              role="tab"
+              aria-selected={props.grouping === value}
+              className={props.grouping === value ? 'active' : ''}
+              onClick={() => props.onGroupingChange(value)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
+
+        {props.grouping === 'project' ? (
+          <div className="quote-cats">
+            {cat('Walls', 'SF', q.walls)}
+            {cat('Ceilings', 'SF', q.ceilings)}
+            {cat('Trim', 'LF', q.trim)}
+            {q.heavyPrepCost > 0 && (
+              <div className="quote-cat">
+                <div className="quote-cat-title">Heavy prep</div>
+                <Row label="Adder" value={fmtMoney(q.heavyPrepCost)} strong />
+              </div>
+            )}
+            {q.walls.qty === 0 && q.ceilings.qty === 0 && q.trim.qty === 0 && (
+              <p className="modal-text">Nothing measured yet — measure some walls first.</p>
+            )}
+          </div>
+        ) : (
+          <div className="quote-groups">
+            {props.groups.length === 0 && (
+              <p className="modal-text">Nothing measured yet — measure some walls first.</p>
+            )}
+            {props.groups.map(groupBlock)}
+          </div>
+        )}
 
         <div className="quote-total">
           <Row label="Paint to buy" value={`${q.totalGallons.toFixed(1)} gallons`} />
