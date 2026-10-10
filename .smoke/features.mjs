@@ -142,8 +142,17 @@ await page.getByRole('button', { name: 'Skip this' }).click();
 await page.locator('.unit-toggle button', { hasText: 'ft & in' }).click();
 await page.getByRole('button', { name: 'Quick Area' }).click();
 const cbox = await page.locator('.pdf-canvas').boundingBox();
+// Pixel offsets below were calibrated against a 1110x740 canvas (the
+// toolbar's old, 2-row layout at 1500x950). The toolbar has since grown
+// (Edit/Overlay buttons) and nudges the fit-to-page canvas smaller at this
+// viewport — scale every offset by the canvas's actual size vs. that
+// reference so these stay correct if the toolbar's footprint changes again.
+const REF_W = 1110, REF_H = 740;
+const sx = cbox.width / REF_W, sy = cbox.height / REF_H;
+const px = (x) => cbox.x + x * sx;
+const py = (y) => cbox.y + y * sy;
 // COMMUNITY CENTRE room interior, relative to canvas top-left (from page5-fit.png)
-const roomX = cbox.x + 260, roomY = cbox.y + 366;
+const roomX = px(260), roomY = py(366);
 const t0 = Date.now();
 await page.mouse.click(roomX, roomY);
 await page.waitForSelector('.qa-card', { timeout: 10000 });
@@ -163,7 +172,7 @@ await page.screenshot({ path: 'quickarea-result.png' });
 
 // flood cutout: with the cleaned barrier, open floor is rejected gracefully
 await page.getByRole('button', { name: 'Cut out an obstacle' }).click();
-await page.mouse.click(cbox.x + 225, cbox.y + 416);
+await page.mouse.click(px(225), py(416));
 await page.waitForTimeout(600);
 const cutToast = (await page.locator('.toast').textContent()) ?? '';
 console.log('  flood cutout on open floor toast:', cutToast);
@@ -172,11 +181,11 @@ check('flood cutout on open floor is a friendly rejection', cutToast.length > 0 
 // manual polygon cut-out: trace a square inside the shaded room
 const floorBefore = parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
 await page.getByRole('button', { name: 'Draw a cut-out' }).click();
-await page.mouse.click(cbox.x + 200, cbox.y + 385);
-await page.mouse.click(cbox.x + 250, cbox.y + 385);
-await page.mouse.click(cbox.x + 250, cbox.y + 410);
-await page.mouse.click(cbox.x + 200, cbox.y + 410);
-await page.mouse.dblclick(cbox.x + 200, cbox.y + 410);
+await page.mouse.click(px(200), py(385));
+await page.mouse.click(px(250), py(385));
+await page.mouse.click(px(250), py(410));
+await page.mouse.click(px(200), py(410));
+await page.mouse.dblclick(px(200), py(410));
 await page.waitForTimeout(500);
 const floorAfterPoly = parseFloat(await page.locator('.qa-row').nth(1).locator('input').inputValue());
 console.log(`  manual cut-out: floor ${floorBefore} -> ${floorAfterPoly} sq ft`);

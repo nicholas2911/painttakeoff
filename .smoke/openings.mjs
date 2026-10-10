@@ -81,7 +81,10 @@ check('trim totaled separately', minorRow?.includes('Trim'));
 // ---------- openings ----------
 const grossBefore = parseFloat((await page.locator('.mp-total-row').first().locator('strong').textContent() ?? '0').replace(/[^0-9.]/g, ''));
 console.log(`  gross wall: ${grossBefore} sq ft (wall ≈${(pxToFt(200) * 8).toFixed(0)} + ceiling rows don't count)`);
-await page.getByRole('button', { name: 'Openings', exact: true }).click();
+// Scoped to the toolbar: the Measurements panel (open since the section
+// checks above) also has an "Openings" filter chip (v0.7.2 panel filters)
+// that an unscoped getByRole would ambiguously match too.
+await page.locator('.toolbar').getByRole('button', { name: 'Openings', exact: true }).click();
 await page.mouse.click(cx + 100, cy - 100);
 await page.waitForSelector('.opening-popover');
 check('opening popover offers Door/Window/Slider', (await page.locator('.opening-popover').textContent())?.includes('Slider'));
