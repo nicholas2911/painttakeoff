@@ -25,6 +25,11 @@ const META_KEY = 'pt:v1:projects';
 const DB_NAME = 'painttakeoff';
 const STORE = 'pdfs';
 
+// A single cached connection — openDb() was called fresh on every save/
+// load/delete and never closed, leaking a connection per call over a
+// long session.
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 export function loadProjects(): ProjectMeta[] {
   try {
     const raw = localStorage.getItem(META_KEY);
@@ -45,14 +50,20 @@ export function saveProjects(projects: ProjectMeta[]): void {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => {
+        dbPromise = null; // let a later call retry instead of caching the failure
+        reject(req.error);
+      };
+    });
+  }
+  return dbPromise;
 }
 
 export async function savePdfBytes(id: string, data: ArrayBuffer): Promise<void> {
@@ -84,10 +95,22 @@ export async function deletePdfBytes(id: string): Promise<void> {
   });
 }
 
-/** Remove a project's per-page data too (scales, measurements, settings). */
-export function deleteProjectData(fingerprint: string): void {
-  const prefixes = [`pt:v1:scale:${fingerprint}:`, `pt:v1:measure:${fingerprint}:`, `pt:v1:pagesettings:${fingerprint}:`];
-  const doomed: string[] = [];
+/** Remove a project's per-page data too (scales, measurements, settings,
+ *  the scratch overlay) plus its per-project rows (quote overrides,
+ *  manual add-ons, invoice draft) — everything keyed by fingerprint or id. */
+export function deleteProjectData(fingerprint: string, projectId: string): void {
+  const prefixes = [
+    `pt:v1:scale:${fingerprint}:`,
+    `pt:v1:measure:${fingerprint}:`,
+    `pt:v1:pagesettings:${fingerprint}:`,
+    `pt:v1:scratch:${fingerprint}:`,
+  ];
+  const singleKeys = [
+    `pt:v1:quoteoverrides:${projectId}`,
+    `pt:v1:addons:${projectId}`,
+    `pt:v1:invoices:${projectId}`,
+  ];
+  const doomed: string[] = [...singleKeys];
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -103,5 +126,5 @@ export function deleteProject(id: string): void {
   const project = loadProjects().find((p) => p.id === id);
   saveProjects(loadProjects().filter((p) => p.id !== id));
   void deletePdfBytes(id);
-  if (project) deleteProjectData(project.fingerprint);
+  if (project) deleteProjectData(project.fingerprint, id);
 }

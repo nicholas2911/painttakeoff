@@ -3,6 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Defense-in-depth: this app parses user-supplied PDFs through pdf.js,
+      a real historical source of crafted-file CVEs. contextIsolation +
+      sandbox + no nodeIntegration (see electron/main.cjs) are the main
+      guard; this CSP limits what a compromised renderer could still do.
+      'unsafe-eval'/'unsafe-inline' are kept because Vite's dev HMR and
+      React's inline style={{}} usage need them — tightening further would
+      need nonces/hashes, more invasive than this app's risk calls for.
+      ws:/wss: in connect-src is dev-only (Vite's HMR socket); the packaged
+      app loads everything from the app:// origin and never needs it.
+      No frame-ancestors here — the spec only honors it as an HTTP header,
+      never via <meta>, so it would just be dead weight (and a console
+      warning) in this tag.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none';"
+    />
     <title>PaintTakeoff</title>
   </head>
   <body>

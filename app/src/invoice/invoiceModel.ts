@@ -33,15 +33,19 @@ export interface InvoiceDraft {
 const COUNTER_KEY = 'pt:v1:invoice-counter';
 const DRAFT_PREFIX = 'pt:v1:invoices:';
 
-export function nextInvoiceNumber(): string {
-  let n = 0;
+/** Commit a previewed number (from peekInvoiceNumber) so the NEXT preview
+ *  moves past it. Idempotent — re-saving the same invoice (same number)
+ *  is a no-op instead of burning another number on every re-save; only
+ *  advances the counter the first time a given number is actually used. */
+export function commitInvoiceNumber(invoiceNumber: string): void {
+  const n = parseInt(invoiceNumber.replace(/^INV-/, ''), 10);
+  if (!Number.isFinite(n)) return;
   try {
-    n = parseInt(localStorage.getItem(COUNTER_KEY) ?? '0', 10) || 0;
-    localStorage.setItem(COUNTER_KEY, String(n + 1));
+    const current = parseInt(localStorage.getItem(COUNTER_KEY) ?? '0', 10) || 0;
+    if (n > current) localStorage.setItem(COUNTER_KEY, String(n));
   } catch {
     /* non-fatal */
   }
-  return `INV-${String(n + 1).padStart(4, '0')}`;
 }
 
 export function peekInvoiceNumber(): string {

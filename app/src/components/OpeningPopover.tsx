@@ -14,6 +14,9 @@ export default function OpeningPopover(props: {
   onCancel(): void;
 }) {
   const [custom, setCustom] = useState('');
+  // The custom-size field needs its own type choice — it used to silently
+  // hardcode 'window' regardless of what the user actually meant.
+  const [customType, setCustomType] = useState<OpeningType>('door');
   const fmt = (m2: number) =>
     props.units === 'metric' ? `${m2.toFixed(1)} m²` : `${Math.round(m2 * SQFT_PER_M2)} sq ft`;
 
@@ -33,7 +36,12 @@ export default function OpeningPopover(props: {
   return (
     <div
       className="opening-popover"
-      style={{ left: Math.min(props.x, window.innerWidth - 260), top: props.y }}
+      style={{
+        // Clamp on every edge, not just the right — a pin near the left or
+        // bottom of the viewer used to render the popover partly off-screen.
+        left: Math.max(8, Math.min(props.x, window.innerWidth - 260)),
+        top: Math.max(8, Math.min(props.y, window.innerHeight - 260)),
+      }}
     >
       <div className="op-title">What is this?</div>
       <div className="op-buttons">
@@ -42,23 +50,37 @@ export default function OpeningPopover(props: {
         {btn('slider', 'Slider')}
       </div>
       <div className="op-custom">
-        <input
-          autoFocus={false}
-          placeholder={`Other size (${props.units === 'metric' ? 'm²' : 'sq ft'})`}
-          value={custom}
-          onChange={(e) => setCustom(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && customM2 !== null) props.onPick('window', customM2);
-            if (e.key === 'Escape') props.onCancel();
-          }}
-        />
-        <button
-          className="tool"
-          disabled={customM2 === null}
-          onClick={() => customM2 !== null && props.onPick('window', customM2)}
-        >
-          Add
-        </button>
+        <div className="op-custom-type">
+          {(['door', 'window', 'slider'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={customType === t ? 'active' : ''}
+              onClick={() => setCustomType(t)}
+            >
+              {t === 'door' ? 'Door' : t === 'window' ? 'Window' : 'Slider'}
+            </button>
+          ))}
+        </div>
+        <div className="op-custom-row">
+          <input
+            autoFocus={false}
+            placeholder={`Other size (${props.units === 'metric' ? 'm²' : 'sq ft'})`}
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && customM2 !== null) props.onPick(customType, customM2);
+              if (e.key === 'Escape') props.onCancel();
+            }}
+          />
+          <button
+            className="tool"
+            disabled={customM2 === null}
+            onClick={() => customM2 !== null && props.onPick(customType, customM2)}
+          >
+            Add
+          </button>
+        </div>
       </div>
       <button className="op-cancel" onClick={props.onCancel}>
         Cancel (Esc)

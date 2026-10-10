@@ -56,6 +56,12 @@ function pdfArg() {
   return hit ? path.resolve(hit) : null;
 }
 
+// read-pdf only ever needs to serve this one already-validated path (the
+// CLI-arg / file-association open) — resolved once at startup so the
+// handler below has a known-good path to compare against instead of
+// trusting whatever the renderer sends.
+const cliPdfPath = pdfArg();
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -108,9 +114,13 @@ ipcMain.on('window-close', (e) => winFrom(e)?.close());
 ipcMain.handle('window-is-maximized', (e) => winFrom(e)?.isMaximized() ?? false);
 
 // Renderer asks for the bytes of a PDF path (command-line open / association).
+// The only legitimate caller round-trips main's own validated CLI-arg path
+// straight back (see onOpenPdfPath in preload.cjs / App.tsx) — so this
+// never needs to serve an arbitrary renderer-chosen path.
 ipcMain.handle('read-pdf', async (_event, p) => {
   if (typeof p !== 'string' || !/\.pdf$/i.test(p)) throw new Error('PDF files only');
-  return fsp.readFile(p); // Buffer -> Uint8Array in the renderer
+  if (!cliPdfPath || path.resolve(p) !== cliPdfPath) throw new Error('Not the opened PDF');
+  return fsp.readFile(cliPdfPath); // Buffer -> Uint8Array in the renderer
 });
 
 // Print the invoice view to a PDF in the user's Downloads folder.
@@ -122,7 +132,12 @@ ipcMain.handle('print-pdf', async (event, fileName) => {
     printBackground: true,
     margins: { marginType: 'none' },
   });
-  const name = typeof fileName === 'string' && /[\w-]+\.pdf$/i.test(fileName) ? fileName : 'invoice.pdf';
+  // Anchored (^...$) — unanchored would accept a path-separator-laden
+  // string like "../../evil.pdf" as long as its tail matched, letting a
+  // free-text field (the invoice number) steer the save outside Downloads.
+  // Spaces are allowed (the project-name half of this filename allows
+  // them too) but '/', '\', and '.' outside the extension are not.
+  const name = typeof fileName === 'string' && /^[\w \-]+\.pdf$/i.test(fileName) ? fileName : 'invoice.pdf';
   const outPath = path.join(app.getPath('downloads'), name);
   await fsp.writeFile(outPath, data);
   return outPath;

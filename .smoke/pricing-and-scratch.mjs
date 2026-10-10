@@ -150,9 +150,11 @@ const priceDuringScratch = await page.locator('.quote-price strong').textContent
 check('quote total unaffected by the scratch draw', priceDuringScratch === priceBefore);
 await page.getByRole('button', { name: 'Close' }).click();
 
-// Undo removes only the scratch item
+// Undo removes only the scratch item (Undo/Clear/History live in the
+// toolbar's "Edit ▾" menu, not as standalone buttons)
 await page.getByRole('button', { name: 'Move Around' }).click();
-await page.getByRole('button', { name: 'Undo', exact: true }).click();
+await page.getByRole('button', { name: 'Edit ▾', exact: true }).click();
+await page.getByRole('button', { name: 'Undo (scratch)', exact: true }).click();
 await page.waitForTimeout(300);
 const undoToast = await page.locator('.toast').textContent();
 check('undo toast names the scratch measurement', undoToast.includes('Removed'));
@@ -164,7 +166,8 @@ await page.mouse.click(rect.x + 500, rect.y + 520);
 await page.mouse.dblclick(rect.x + 500, rect.y + 520);
 await page.waitForTimeout(300);
 await page.getByRole('button', { name: 'Move Around' }).click();
-await page.getByRole('button', { name: 'Clear', exact: true }).click();
+await page.getByRole('button', { name: 'Edit ▾', exact: true }).click();
+await page.getByRole('button', { name: 'Clear (scratch)', exact: true }).click();
 await page.waitForTimeout(100);
 await page.getByRole('button', { name: /Clear\? Click again/ }).click();
 await page.waitForTimeout(300);
@@ -184,6 +187,7 @@ await page.waitForTimeout(300);
 await page.getByRole('button', { name: 'Move Around' }).click();
 check('panel now shows 2 real measurements', (await page.locator('.mp-row').count()) === 2);
 
+await page.getByRole('button', { name: 'Edit ▾', exact: true }).click();
 await page.getByRole('button', { name: 'History', exact: true }).click();
 await page.waitForSelector('.history-modal');
 const historyRows = await page.locator('.history-row').count();

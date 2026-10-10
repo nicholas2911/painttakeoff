@@ -25,6 +25,15 @@ const WHATS_NEW: Record<string, string[]> = {
     'Page picker: measure only the pages you need.',
     'Price Book + Quote + Excel export: measurements turn into a price.',
   ],
+  '0.7.0': [
+    'Project cards now have their own menu — open, go straight to the quote, edit details, or delete.',
+    'Create a real invoice from a quote, with your own tax rows (HST, GST + PST, or none).',
+  ],
+  '0.8.0': [
+    'Quote view: flip paint grade, heavy prep, and high-ceiling add-ons right on the quote, plus drop in extra price-book line items by hand.',
+    'A "Simple $/SF" pricing mode for walls, for quick jobs that don’t need the full build-up.',
+    'Scratch overlay: measure something on a page without it ever counting toward the total. Undo, Clear, and History are all in the toolbar now.',
+  ],
 };
 
 const TIPS = [
@@ -64,7 +73,10 @@ export default function Dashboard(props: {
       )
     : props.projects;
   const tip = TIPS[Math.floor(Date.now() / 86400000) % TIPS.length];
-  const notes = WHATS_NEW[pkg.version] ?? WHATS_NEW['0.6.0'];
+  // No fallback to an older version's notes — showing a past release's
+  // bullets under the CURRENT version number is more confusing than just
+  // not showing the card for a version that hasn't gotten its own entry yet.
+  const notes = WHATS_NEW[pkg.version];
 
   return (
     <div className="dashboard">
@@ -79,7 +91,7 @@ export default function Dashboard(props: {
       </div>
 
       <div className="dash-inner">
-        {props.whatsNew && (
+        {props.whatsNew && notes && (
           <div className="whatsnew">
             <div className="whatsnew-title">What’s new in {pkg.version}</div>
             <ul>

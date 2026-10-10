@@ -82,7 +82,7 @@ import CardActionSheet from './components/CardActionSheet';
 import InvoiceView from './components/InvoiceView';
 import {
   loadInvoiceDraft,
-  nextInvoiceNumber,
+  commitInvoiceNumber,
   peekInvoiceNumber,
   saveInvoiceDraft,
   type InvoiceDraft,
@@ -1725,7 +1725,10 @@ export default function App() {
     // The invoice number commits when the PDF is produced.
     const committed = invoiceDraft.invoiceNumber;
     const base = currentProject.name.replace(/[^a-z0-9-_ ]/gi, '').trim() || 'invoice';
-    const fileName = `${base}-invoice-${committed}.pdf`;
+    // invoiceNumber is free text (editable in the UI) — sanitize the same
+    // way as the project name before it goes into a filename.
+    const numberForFile = committed.replace(/[^a-z0-9-_ ]/gi, '').trim() || 'draft';
+    const fileName = `${base}-invoice-${numberForFile}.pdf`;
     const bridge = window.painttakeoff;
     if (bridge?.printPdf) {
       try {
@@ -1739,8 +1742,9 @@ export default function App() {
     } else {
       window.print();
     }
-    // Only now does the counter advance, so the next invoice gets the next number.
-    nextInvoiceNumber();
+    // Commits the previewed number so the next NEW invoice moves past it.
+    // Idempotent — re-saving this same draft won't burn another number.
+    commitInvoiceNumber(committed);
   }, [invoiceDraft, currentProject, showToast]);
 
 

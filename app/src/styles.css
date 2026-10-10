@@ -1472,11 +1472,40 @@ body {
 
 .op-custom {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   margin-top: 8px;
 }
 
-.op-custom input {
+.op-custom-type {
+  display: flex;
+  gap: 4px;
+}
+
+.op-custom-type button {
+  flex: 1;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 4px 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.op-custom-type button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.op-custom-row {
+  display: flex;
+  gap: 6px;
+}
+
+.op-custom-row input {
   flex: 1;
   font: inherit;
   font-size: 13px;
