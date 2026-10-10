@@ -108,18 +108,26 @@ export default function Dashboard(props: {
         {empty && (
           <div className="dash-howto">
             <div className="dash-howto-item">
-              <span className="step-number">1</span>
-              <FolderIcon size={20} />
+              <span className="dash-howto-icon">
+                <FolderIcon size={18} />
+                <span className="dash-howto-num">1</span>
+              </span>
               <span><strong>New project</strong> — name it, pick the PDF.</span>
             </div>
+            <div className="dash-howto-arrow" aria-hidden="true">→</div>
             <div className="dash-howto-item">
-              <span className="step-number">2</span>
-              <RulerIcon size={20} />
+              <span className="dash-howto-icon">
+                <RulerIcon size={18} />
+                <span className="dash-howto-num">2</span>
+              </span>
               <span><strong>Set the scale</strong> — one real length on the page.</span>
             </div>
+            <div className="dash-howto-arrow" aria-hidden="true">→</div>
             <div className="dash-howto-item">
-              <span className="step-number">3</span>
-              <MeasureIcon size={20} />
+              <span className="dash-howto-icon">
+                <MeasureIcon size={18} />
+                <span className="dash-howto-num">3</span>
+              </span>
               <span><strong>Measure & quote</strong> — walls, ceilings, openings.</span>
             </div>
           </div>
@@ -186,7 +194,8 @@ export default function Dashboard(props: {
         )}
 
         <div className="dash-tip">
-          <strong>Did you know?</strong> {tip}
+          <span className="dash-tip-icon" aria-hidden="true">💡</span>
+          <span><strong>Did you know?</strong> {tip}</span>
         </div>
 
         <p className="dash-footer-hint">…or drag a plan PDF anywhere onto this window.</p>

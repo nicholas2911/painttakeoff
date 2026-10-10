@@ -1,44 +1,60 @@
-/* ---------- design tokens ---------- */
+/* ---------- design tokens ----------
+ * A deeper, less "generic SaaS blue" accent, a two-layer shadow (reads as
+ * more deliberate than a single flat drop-shadow), and a small radius/
+ * transition scale. Token NAMES are unchanged from before — every existing
+ * var(--accent)/var(--shadow)/etc. reference picks this up automatically;
+ * only the new supplementary tokens (--shadow-sm/-lg, --radius*,
+ * --transition) are opt-in, used by newly-touched styles below. */
 :root {
-  --bg: #e8ecf1;
+  --bg: #eef1f6;
   --bg-panel: #ffffff;
-  --bg-raised: #f3f6f9;
-  --border: #d2dae3;
-  --text: #1c2634;
-  --text-dim: #54667a;
-  --accent: #1a66cc;
-  --accent-strong: #0f4fa8;
-  --accent-soft: #e3eefb;
-  --go: #178a4c;
-  --go-strong: #0f6f3b;
-  --ok: #178a4c;
-  --ok-soft: #e2f4e9;
-  --warn: #b45309;
-  --warn-soft: #fdf0dd;
-  --danger: #c0352f;
-  --shadow: 0 2px 10px rgba(28, 38, 52, 0.12);
-  --viewer-bg: repeating-conic-gradient(#dde3ea 0% 25%, #e8ecf1 0% 50%) 0 0 / 24px 24px;
+  --bg-raised: #f6f8fb;
+  --border: #dce3ec;
+  --border-strong: #c3ced6;
+  --text: #182230;
+  --text-dim: #5b6b80;
+  --accent: #2454c7;
+  --accent-strong: #15367e;
+  --accent-soft: #e8eefb;
+  --go: #0f7a50;
+  --go-strong: #0b5f3e;
+  --ok: #0f7a50;
+  --ok-soft: #e1f3ea;
+  --warn: #a8550a;
+  --warn-soft: #fcefdc;
+  --danger: #b5352f;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 14px rgba(16, 24, 40, 0.09);
+  --shadow-lg: 0 2px 4px rgba(16, 24, 40, 0.06), 0 16px 40px rgba(16, 24, 40, 0.14);
+  --radius-sm: 6px;
+  --radius: 9px;
+  --radius-lg: 14px;
+  --transition: 120ms ease;
+  --viewer-bg: repeating-conic-gradient(#e2e7ee 0% 25%, #eef1f6 0% 50%) 0 0 / 24px 24px;
 }
 
 [data-theme='dark'] {
-  --bg: #14181e;
-  --bg-panel: #1c222b;
-  --bg-raised: #232b36;
-  --border: #323c49;
-  --text: #e8ecf1;
-  --text-dim: #9aa7b5;
-  --accent: #4d8fe0;
-  --accent-strong: #6ba3e8;
-  --accent-soft: #22344a;
-  --go: #2ea767;
-  --go-strong: #3ebd77;
-  --ok: #4cc38a;
-  --ok-soft: #1d3328;
-  --warn: #e5a13c;
-  --warn-soft: #3a2d16;
-  --danger: #e0645f;
-  --shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
-  --viewer-bg: repeating-conic-gradient(#171c23 0% 25%, #14181e 0% 50%) 0 0 / 24px 24px;
+  --bg: #11151b;
+  --bg-panel: #1a2029;
+  --bg-raised: #212934;
+  --border: #2e3744;
+  --border-strong: #3c4857;
+  --text: #e7ebf1;
+  --text-dim: #93a1b2;
+  --accent: #5b92e8;
+  --accent-strong: #80abf0;
+  --accent-soft: #1f2e45;
+  --go: #35b27c;
+  --go-strong: #4ec890;
+  --ok: #35b27c;
+  --ok-soft: #152a21;
+  --warn: #e3a855;
+  --warn-soft: #362a16;
+  --danger: #e2726c;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.35), 0 20px 48px rgba(0, 0, 0, 0.5);
+  --viewer-bg: repeating-conic-gradient(#161c24 0% 25%, #11151b 0% 50%) 0 0 / 24px 24px;
 }
 
 * {
@@ -101,17 +117,16 @@ body {
 }
 
 .logo-mark {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex: none;
-  border-radius: 6px;
-  background: var(--accent);
+  border-radius: 7px;
+  background: linear-gradient(145deg, var(--accent), var(--accent-strong));
   color: #fff;
-  font-weight: 800;
-  font-size: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: var(--shadow-sm);
 }
 
 .wordmark {
@@ -197,17 +212,30 @@ body {
   background: var(--bg-raised);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 8px 13px;
   font: inherit;
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition), color var(--transition),
+    box-shadow var(--transition), transform 80ms ease;
 }
 
 .tool:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent-strong);
+  background: var(--bg-panel);
+}
+
+.tool:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .tool:disabled {
@@ -237,6 +265,7 @@ body {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent-strong);
+  box-shadow: var(--shadow-sm);
 }
 
 /* The one button we always want eyeballs on. */
@@ -666,26 +695,43 @@ body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 20, 28, 0.55);
+  background: rgba(10, 14, 20, 0.5);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 50;
+  animation: modal-backdrop-in 140ms ease;
 }
 
 .modal {
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 24px 26px;
   width: 480px;
   max-width: calc(100vw - 40px);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
 }
 
 .modal-title {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   margin-bottom: 8px;
 }
 
@@ -1872,7 +1918,7 @@ body {
 }
 
 .quote-addon-remove:hover {
-  color: #c0352f;
+  color: var(--danger);
 }
 
 .quote-addon-new {
@@ -1970,29 +2016,69 @@ body {
 
 .dash-howto {
   display: flex;
-  gap: 22px;
-  margin-top: 26px;
+  align-items: center;
+  gap: 14px;
+  margin-top: 30px;
   color: var(--text-dim);
 }
 
 .dash-howto-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   font-size: 13.5px;
   line-height: 1.4;
-  max-width: 300px;
+  max-width: 260px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
 }
 
-.dash-howto-item .step-number {
-  position: static;
-  transform: none;
+.dash-howto-icon {
+  position: relative;
   flex: none;
-}
-
-.dash-howto-item svg {
-  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--accent-soft);
   color: var(--accent-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dash-howto-num {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dash-howto-arrow {
+  flex: none;
+  color: var(--border-strong);
+  font-size: 18px;
+}
+
+@media (max-width: 900px) {
+  .dash-howto {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dash-howto-arrow {
+    display: none;
+  }
 }
 
 .dash-recent {
@@ -2246,13 +2332,13 @@ body {
 }
 
 .dash-hero {
-  background: linear-gradient(180deg, rgba(26, 102, 204, 0.10), rgba(26, 102, 204, 0.02) 70%, transparent);
+  background: linear-gradient(180deg, rgba(36, 84, 199, 0.1), rgba(36, 84, 199, 0.02) 70%, transparent);
   border-bottom: 1px solid var(--border);
   padding: 56px 0 34px;
 }
 
 [data-theme='dark'] .dash-hero {
-  background: linear-gradient(180deg, rgba(77, 143, 224, 0.12), transparent 80%);
+  background: linear-gradient(180deg, rgba(91, 146, 232, 0.14), transparent 80%);
 }
 
 .dash-hero .dash-inner {
@@ -2338,12 +2424,20 @@ body {
 /* tips */
 .dash-tip {
   margin-top: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--text-dim);
   font-size: 13.5px;
-  background: var(--bg-panel);
+  background: var(--accent-soft);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 10px 14px;
+}
+
+.dash-tip-icon {
+  flex: none;
+  font-size: 15px;
 }
 
 /* ---------- v0.7: card action sheet + invoice ---------- */
@@ -2402,7 +2496,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9aa7b5;
+  color: #8b99aa;
   font-size: 11px;
   flex: none;
 }
@@ -2473,7 +2567,7 @@ body {
 .inv-row-del {
   background: none;
   border: none;
-  color: #c0352f;
+  color: #b5352f;
   cursor: pointer;
   font-size: 12px;
   opacity: 0.4;
@@ -2492,15 +2586,20 @@ body {
   border-bottom: 1px dashed transparent;
 }
 
+/* The invoice is a printable document — it stays on its own fixed
+ * white/dark-ink palette regardless of the app's light/dark theme, so
+ * these use fixed colors (matching the new accent hue) rather than
+ * var(--accent), which would otherwise wash out against the always-white
+ * page in dark mode. */
 .inv-edit:hover {
-  border-bottom-color: #1a66cc;
+  border-bottom-color: #2454c7;
 }
 
 .inv-input {
   font: inherit;
   color: inherit;
-  background: #eef4fc;
-  border: 1px solid #1a66cc;
+  background: #e8eefb;
+  border: 1px solid #2454c7;
   border-radius: 4px;
   padding: 2px 6px;
 }
@@ -2533,7 +2632,7 @@ body {
 
 .inv-flag {
   font-style: normal;
-  color: #b45309;
+  color: #a8550a;
   font-size: 11.5px;
 }
 
@@ -2848,5 +2947,5 @@ body {
 }
 
 .preset-chip .preset-chip-x:hover {
-  color: #c0352f;
+  color: var(--danger);
 }

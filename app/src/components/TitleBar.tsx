@@ -30,7 +30,13 @@ export default function TitleBar(props: {
   return (
     <div className="titlebar">
       <div className="tb-brand">
-        <span className="logo-mark">P</span>
+        <span className="logo-mark" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="4" width="13" height="7" rx="2" fill="currentColor" />
+            <rect x="6" y="11" width="3.4" height="8" rx="1.2" fill="currentColor" opacity="0.85" />
+            <path d="M15 7.5h5a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-5" stroke="currentColor" strokeWidth="1.6" fill="none" />
+          </svg>
+        </span>
         <span className="wordmark">PaintTakeoff</span>
         {updates ? (
           <button
