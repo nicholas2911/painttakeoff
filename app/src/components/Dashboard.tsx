@@ -34,6 +34,10 @@ const WHATS_NEW: Record<string, string[]> = {
     'A "Simple $/SF" pricing mode for walls, for quick jobs that don’t need the full build-up.',
     'Scratch overlay: measure something on a page without it ever counting toward the total. Undo, Clear, and History are all in the toolbar now.',
   ],
+  '0.8.1': [
+    'A visual refresh — refined colors, friendlier buttons and dialogs, and a cleaner first-run screen.',
+    'Fixed: invoice numbers no longer skip ahead when you re-save the same invoice, and deleting a project now cleans up everything it left behind.',
+  ],
 };
 
 const TIPS = [
