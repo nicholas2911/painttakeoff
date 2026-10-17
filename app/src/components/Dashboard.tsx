@@ -56,7 +56,7 @@ export interface DashStats {
   projects: number;
 }
 
-/** Start screen: full-window home on blueprint paper. */
+/** Start screen: full-window home on cream paper. */
 export default function Dashboard(props: {
   projects: ProjectMeta[];
   projectStats: Record<string, string | null>;
@@ -86,10 +86,10 @@ export default function Dashboard(props: {
     <div className="dashboard">
       <div className="dash-hero">
         <div className="dash-inner">
-          <h1 className="dash-greeting">{greeting()}!</h1>
+          <h1 className="dash-greeting">{greeting()}</h1>
           <p className="dash-sub">What are we quoting today?</p>
           <button className="big-open-button" onClick={props.onNewProject}>
-            <FolderIcon size={22} /> New Project
+            <FolderIcon size={20} /> New project
           </button>
         </div>
       </div>
@@ -198,8 +198,7 @@ export default function Dashboard(props: {
         )}
 
         <div className="dash-tip">
-          <span className="dash-tip-icon" aria-hidden="true">💡</span>
-          <span><strong>Did you know?</strong> {tip}</span>
+          <span><strong className="dash-tip-label">Tip</strong> {tip}</span>
         </div>
 
         <p className="dash-footer-hint">…or drag a plan PDF anywhere onto this window.</p>

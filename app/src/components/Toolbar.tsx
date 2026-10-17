@@ -15,13 +15,11 @@ import {
   HomeIcon,
   ListIcon,
   MeasureIcon,
-  MoonIcon,
   MoveIcon,
   PagesIcon,
   QuestionIcon,
   QuoteIcon,
   RulerIcon,
-  SunIcon,
   ZoomInIcon,
   ZoomOutIcon,
 } from './icons';
@@ -48,8 +46,6 @@ interface ToolbarProps {
   onConfirmScale(): void;
   units: UnitSystem;
   onToggleUnits(): void;
-  theme: 'light' | 'dark';
-  onToggleTheme(): void;
   onShowShortcuts(): void;
   measureCount: number;
   panelOpen: boolean;
@@ -72,7 +68,7 @@ interface ToolbarProps {
 }
 
 export default function Toolbar(props: ToolbarProps) {
-  const { plan, pageNum, numPages, scale, mode, units, theme } = props;
+  const { plan, pageNum, numPages, scale, mode, units } = props;
   const fileRef = useRef<HTMLInputElement>(null);
   const [pageText, setPageText] = useState(String(pageNum));
   const [fitOpen, setFitOpen] = useState(false);
@@ -402,13 +398,6 @@ export default function Toolbar(props: ToolbarProps) {
             meters
           </button>
         </div>
-        <button
-          className="tool icon-tool"
-          onClick={props.onToggleTheme}
-          title={theme === 'light' ? 'Switch to dark colors' : 'Switch to light colors'}
-        >
-          {theme === 'light' ? <MoonIcon /> : <SunIcon />}
-        </button>
         <button className="tool icon-tool" onClick={props.onShowShortcuts} title="Shortcuts &amp; tips">
           <QuestionIcon />
         </button>

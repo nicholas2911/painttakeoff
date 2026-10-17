@@ -1924,7 +1924,7 @@ export default function App() {
     } else if (!scale) {
       stepBar = (
         <StepBar kind="action" title="Step 2 of 3 · Set the scale">
-          Click the blue <strong>Set Scale</strong> button above, then click the two ends of
+          Click <strong>Set Scale</strong> in the toolbar, then click the two ends of
           anything whose length you know. If the plan already says its scale, pick it from{' '}
           <strong>Common scales…</strong> instead.
         </StepBar>
@@ -1951,7 +1951,7 @@ export default function App() {
     <div
       className={`app ${dragging ? 'dragging' : ''} ${isElectron ? 'electron' : ''} ${
         winMaximized ? 'maximized' : ''
-      }`}
+      } ${!plan ? 'home' : ''}`}
     >
       {isElectron && (
         <TitleBar
@@ -1960,6 +1960,8 @@ export default function App() {
           onMaximizedChange={setWinMaximized}
           update={updateState}
           onCheckUpdates={() => void checkUpdatesNow()}
+          theme={theme}
+          onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         />
       )}
       <input
@@ -1994,8 +1996,6 @@ export default function App() {
         onConfirmScale={startDoubleCheck}
         units={units}
         onToggleUnits={toggleUnits}
-        theme={theme}
-        onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         onShowShortcuts={() => setShortcutsOpen(true)}
         measureCount={pageMeasurements.length}
         panelOpen={panelOpen}

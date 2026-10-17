@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { UpdateState } from '../types';
 import UpdateButton from './UpdateButton';
+import { MoonIcon, SunIcon } from './icons';
 import pkg from '../../package.json';
 
 /**
@@ -14,6 +15,8 @@ export default function TitleBar(props: {
   onMaximizedChange(v: boolean): void;
   update: UpdateState | null;
   onCheckUpdates(): void;
+  theme: 'light' | 'dark';
+  onToggleTheme(): void;
 }) {
   const controls = window.painttakeoff?.windowControls;
   const updates = window.painttakeoff?.updates;
@@ -66,6 +69,14 @@ export default function TitleBar(props: {
           />
         </div>
       )}
+      <button
+        className="tb-theme"
+        onClick={props.onToggleTheme}
+        title={props.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        aria-label={props.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+      >
+        {props.theme === 'light' ? <MoonIcon size={16} /> : <SunIcon size={16} />}
+      </button>
       <div className="tb-buttons">
         <button
           className="win-btn"
