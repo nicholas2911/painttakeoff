@@ -62,16 +62,24 @@ export default function QuoteView(props: {
     setNewAddOn({ source: newAddOn.source, label: '', qty: '' });
   };
 
+  const unitOf = (a: AddOnPriced) => ADD_ON_SOURCES.find(([s]) => s === a.source)?.[2] ?? '';
+  const addOnQty = (a: AddOnPriced) => (a.source === 'flat' ? 'flat' : `${a.qty.toLocaleString('en-CA')} ${unitOf(a)}`);
+
+  /** One ledger line: a measured category (skipped when nothing measured). */
   const cat = (name: string, unit: string, c: Quote['walls']) =>
     c.qty > 0 ? (
-      <div className="quote-cat">
-        <div className="quote-cat-title">{name}</div>
-        <Row label={`Amount`} value={`${c.qty.toLocaleString('en-CA', { maximumFractionDigits: 0 })} ${unit}`} />
-        <Row label="Labour" value={`${c.hours.toFixed(1)} hr · ${fmtMoney(c.labourCost)}`} />
-        {c.gallons > 0 && <Row label="Paint" value={`${c.gallons.toFixed(1)} gal · ${fmtMoney(c.materialCost)}`} />}
-        <Row label="Cost → price" value={`${fmtMoney(c.cost)} → ${fmtMoney(c.price)}`} strong />
-      </div>
+      <tr className="quote-cat">
+        <td>{name}</td>
+        <td className="num">{`${c.qty.toLocaleString('en-CA', { maximumFractionDigits: 0 })} ${unit}`}</td>
+        <td className="num">{c.hours > 0 ? `${c.hours.toFixed(1)} hr` : '—'}</td>
+        <td className="num">{c.gallons > 0 ? `${c.gallons.toFixed(1)} gal` : '—'}</td>
+        <td className="num dim">{fmtMoney(c.cost)}</td>
+        <td className="num price">{fmtMoney(c.price)}</td>
+        <td />
+      </tr>
     ) : null;
+
+  const nothingMeasured = q.walls.qty === 0 && q.ceilings.qty === 0 && q.trim.qty === 0;
 
   /** One group block in per-room / per-page mode. */
   const groupBlock = (g: QuoteGroup) => (
@@ -104,7 +112,8 @@ export default function QuoteView(props: {
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
       <div className="modal quote-modal">
-        <div className="modal-title">Your quote</div>
+        <div className="quote-head">
+          <div className="modal-title quote-title">Your quote</div>
 
         <div className="quote-grouping" role="tablist" aria-label="Quote breakdown">
           {(
@@ -125,18 +134,13 @@ export default function QuoteView(props: {
             </button>
           ))}
         </div>
+        </div>
 
         <div className="quote-options">
-          <div className="quote-options-title">
-            Quote options
-            <span className="pb-sub">just this quote — your Price Book defaults stay as-is</span>
-            {Object.keys(props.overrides).length > 0 && (
-              <button className="quote-options-reset" onClick={props.onResetOverrides}>
-                Reset to defaults
-              </button>
-            )}
-          </div>
           <div className="quote-options-row">
+            <span className="quote-options-title" title="Just this quote — your Price Book defaults stay as-is">
+              This quote
+            </span>
             <label className="quote-opt-field">
               <span>Paint</span>
               <select
@@ -164,24 +168,69 @@ export default function QuoteView(props: {
               />
               <span>Ladders/lift for high ceilings (+{(pb.highCeilingAdder * 100).toFixed(0)}% labour)</span>
             </label>
+            {Object.keys(props.overrides).length > 0 && (
+              <button className="quote-options-reset" onClick={props.onResetOverrides}>
+                Reset to defaults
+              </button>
+            )}
           </div>
         </div>
 
         {props.grouping === 'project' ? (
-          <div className="quote-cats">
-            {cat('Walls', 'SF', q.walls)}
-            {cat('Ceilings', 'SF', q.ceilings)}
-            {cat('Trim', 'LF', q.trim)}
-            {q.heavyPrepCost > 0 && (
-              <div className="quote-cat">
-                <div className="quote-cat-title">Heavy prep</div>
-                <Row label="Adder" value={fmtMoney(q.heavyPrepCost)} strong />
-              </div>
-            )}
-            {q.walls.qty === 0 && q.ceilings.qty === 0 && q.trim.qty === 0 && (
-              <p className="modal-text">Nothing measured yet — measure some walls first.</p>
-            )}
-          </div>
+          <table className="quote-ledger">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th className="num">Qty</th>
+                <th className="num">Labour</th>
+                <th className="num">Paint</th>
+                <th className="num">Cost</th>
+                <th className="num">Price</th>
+                <th aria-label="Remove" />
+              </tr>
+            </thead>
+            <tbody>
+              {cat(pb.wallPricingMode === 'simple' ? 'Walls (simple $/SF)' : 'Walls', 'SF', q.walls)}
+              {cat('Ceilings', 'SF', q.ceilings)}
+              {cat('Trim', 'LF', q.trim)}
+              {q.heavyPrepCost > 0 && (
+                <tr className="quote-cat">
+                  <td>Heavy prep</td>
+                  <td className="num">{`${Math.round(q.walls.qty).toLocaleString('en-CA')} SF`}</td>
+                  <td className="num">—</td>
+                  <td className="num">—</td>
+                  <td className="num dim">{fmtMoney(q.heavyPrepCost)}</td>
+                  <td className="num price">{fmtMoney(q.heavyPrepCost * (1 + pb.margin))}</td>
+                  <td />
+                </tr>
+              )}
+              {props.addOns.map((a) => (
+                <tr className="quote-addon-row" key={a.id}>
+                  <td>
+                    <span className="quote-addon-label">{a.label}</span>
+                    <span className="quote-addon-chip">add-on</span>
+                  </td>
+                  <td className="num quote-addon-qty">{addOnQty(a)}</td>
+                  <td className="num">—</td>
+                  <td className="num">—</td>
+                  <td className="num dim">{fmtMoney(a.cost)}</td>
+                  <td className="num price quote-addon-price">{fmtMoney(a.price)}</td>
+                  <td>
+                    <button className="quote-addon-remove" onClick={() => props.onRemoveAddOn(a.id)} title="Remove">
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {nothingMeasured && props.addOns.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="quote-ledger-empty">
+                    Nothing measured yet — measure some walls first.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         ) : (
           <div className="quote-groups">
             {props.groups.length === 0 && (
@@ -192,15 +241,15 @@ export default function QuoteView(props: {
         )}
 
         <div className="quote-addons">
-          <div className="quote-addons-title">Add-ons (manual, from the Price Book)</div>
-          {props.addOns.length > 0 && (
+          <div className="quote-addons-title">
+            {props.grouping === 'project' ? 'Add a line from the Price Book' : 'Add-ons (from the Price Book)'}
+          </div>
+          {props.grouping !== 'project' && props.addOns.length > 0 && (
             <div className="quote-addons-list">
               {props.addOns.map((a) => (
                 <div className="quote-addon-row" key={a.id}>
                   <span className="quote-addon-label">{a.label}</span>
-                  <span className="quote-addon-qty">
-                    {a.qty} {ADD_ON_SOURCES.find(([s]) => s === a.source)?.[2]}
-                  </span>
+                  <span className="quote-addon-qty">{addOnQty(a)}</span>
                   <span className="quote-addon-price">{fmtMoney(a.price)}</span>
                   <button className="quote-addon-remove" onClick={() => props.onRemoveAddOn(a.id)} title="Remove">
                     ✕
@@ -239,21 +288,23 @@ export default function QuoteView(props: {
         </div>
 
         <div className="quote-total">
-          <Row label="Paint to buy" value={`${q.totalGallons.toFixed(1)} gallons`} />
-          <Row label="Labour" value={`${q.totalHours.toFixed(1)} hours · ${fmtMoney(q.totalLabourCost)}`} />
-          <Row label="Materials" value={fmtMoney(q.totalMaterialCost)} />
-          {q.heavyPrepCost > 0 && <Row label="Heavy prep" value={fmtMoney(q.heavyPrepCost)} />}
-          <Row label="Measured total cost" value={fmtMoney(q.totalCost)} />
-          <Row label="Measured quote" value={fmtMoney(q.totalPrice)} />
-          {props.addOns.length > 0 && (
-            <>
-              <Row label="Add-ons cost" value={fmtMoney(addOnsCost)} />
-              <Row label="Add-ons price" value={fmtMoney(addOnsPrice)} />
-            </>
-          )}
           <div className="quote-price">
-            <span>QUOTE PRICE</span>
+            <span>
+              Quote price
+              <em>
+                {q.totalHours.toFixed(1)} hours · {q.totalGallons.toFixed(1)} gallons
+              </em>
+            </span>
             <strong>{fmtMoney(grandTotalPrice)}</strong>
+          </div>
+          <div className="quote-costline">
+            <span>Labour {fmtMoney(q.totalLabourCost)}</span>
+            <span>Materials {fmtMoney(q.totalMaterialCost)}</span>
+            {q.heavyPrepCost > 0 && <span>Heavy prep {fmtMoney(q.heavyPrepCost)}</span>}
+            {props.addOns.length > 0 && <span>Add-ons {fmtMoney(addOnsCost)}</span>}
+            <span>
+              <strong>Total cost {fmtMoney(q.totalCost + addOnsCost)}</strong>
+            </span>
           </div>
         </div>
 
@@ -306,11 +357,11 @@ export default function QuoteView(props: {
           <button className="tool" onClick={props.onClose}>
             Close
           </button>
-          <button className="tool" onClick={props.onCreateInvoice}>
-            Create invoice
-          </button>
-          <button className="tool go-button" onClick={props.onExport}>
+          <button className="tool" onClick={props.onExport}>
             Export to Excel
+          </button>
+          <button className="tool go-button" onClick={props.onCreateInvoice}>
+            Create invoice
           </button>
         </div>
       </div>

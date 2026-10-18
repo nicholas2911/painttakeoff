@@ -2477,7 +2477,7 @@ body {
 
 .invoice-doc {
   background: #fff;
-  color: #1c2634;
+  color: #26302b;
   padding: 36px 40px;
   font-size: 13.5px;
 }
@@ -2487,18 +2487,18 @@ body {
   align-items: flex-start;
   gap: 20px;
   padding-bottom: 18px;
-  border-bottom: 2px solid #1c2634;
+  border-bottom: 2px solid #26302b;
 }
 
 .inv-logo-slot {
   width: 90px;
   height: 60px;
-  border: 1.5px dashed #b8c2cf;
+  border: 1.5px dashed #d2c8b5;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #8b99aa;
+  color: #9a9488;
   font-size: 11px;
   flex: none;
 }
@@ -2516,7 +2516,7 @@ body {
 }
 
 .inv-project {
-  color: #54667a;
+  color: #6d6a60;
   font-size: 13.5px;
 }
 
@@ -2536,7 +2536,7 @@ body {
   justify-content: space-between;
   gap: 14px;
   font-size: 13px;
-  color: #54667a;
+  color: #6d6a60;
   padding: 1px 0;
 }
 
@@ -2551,14 +2551,14 @@ body {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #54667a;
-  border-bottom: 1.5px solid #1c2634;
+  color: #6d6a60;
+  border-bottom: 1.5px solid #26302b;
   padding: 6px 4px;
 }
 
 .inv-table td {
   padding: 9px 4px;
-  border-bottom: 1px solid #d2dae3;
+  border-bottom: 1px solid #e4ddcf;
 }
 
 .inv-right {
@@ -2594,14 +2594,14 @@ body {
  * var(--accent), which would otherwise wash out against the always-white
  * page in dark mode. */
 .inv-edit:hover {
-  border-bottom-color: #2454c7;
+  border-bottom-color: #1f5c45;
 }
 
 .inv-input {
   font: inherit;
   color: inherit;
-  background: #e8eefb;
-  border: 1px solid #2454c7;
+  background: #e7efe9;
+  border: 1px solid #1f5c45;
   border-radius: 4px;
   padding: 2px 6px;
 }
@@ -2625,7 +2625,7 @@ body {
 }
 
 .inv-total-row.grand {
-  border-top: 2px solid #1c2634;
+  border-top: 2px solid #26302b;
   margin-top: 6px;
   padding-top: 9px;
   font-size: 17px;
@@ -2646,7 +2646,7 @@ body {
 }
 
 .inv-total-row.off {
-  color: #93a1b2;
+  color: #b3ac9c;
 }
 
 .inv-total-row.off .inv-edit {
@@ -2655,17 +2655,17 @@ body {
 
 .inv-date {
   font: inherit;
-  border: 1px solid #d2dae3;
+  border: 1px solid #e4ddcf;
   border-radius: 4px;
   padding: 2px 4px;
-  color: #1c2634;
+  color: #26302b;
 }
 
 .inv-notes {
   margin-top: 26px;
-  color: #54667a;
+  color: #6d6a60;
   font-size: 13px;
-  border-top: 1px solid #d2dae3;
+  border-top: 1px solid #e4ddcf;
   padding-top: 12px;
 }
 
@@ -3096,4 +3096,245 @@ input[type='range'] {
   border-radius: var(--radius-sm);
   color: var(--warn);
   font-size: 13.5px;
+}
+
+/* ---------- quote: ledger layout (forest + cream) ----------
+ * One line-item table like an estimating sheet, options in a slim bar,
+ * the price in a solid green band. */
+.quote-modal {
+  width: 820px;
+}
+
+.quote-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.quote-head .quote-grouping {
+  margin: 0 0 0 auto;
+}
+
+.quote-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: 24px;
+  color: var(--accent);
+  margin: 0;
+}
+
+.quote-options {
+  margin-top: 0;
+  padding: 7px 10px;
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm);
+}
+
+.quote-options-row {
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.quote-options-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 0;
+  cursor: help;
+}
+
+.quote-options-reset {
+  margin-left: auto;
+}
+
+.quote-ledger {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.quote-ledger th {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1.5px solid var(--border-strong);
+}
+
+.quote-ledger td {
+  padding: 8px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.quote-ledger .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.quote-ledger .dim {
+  color: var(--text-dim);
+}
+
+.quote-ledger .price {
+  font-weight: 700;
+}
+
+.quote-ledger td:last-child,
+.quote-ledger th:last-child {
+  width: 28px;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+}
+
+.quote-ledger .quote-addon-row {
+  display: table-row;
+  padding: 0;
+}
+
+.quote-addon-chip {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  vertical-align: 1px;
+}
+
+.quote-ledger-empty {
+  color: var(--text-dim);
+  text-align: left !important;
+  padding: 16px 8px !important;
+}
+
+.quote-addons {
+  margin-top: 12px;
+}
+
+.quote-addons-title {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.quote-total {
+  margin-top: 14px;
+  border-top: none;
+  padding-top: 0;
+}
+
+.quote-price {
+  margin-top: 0;
+  padding: 12px 16px;
+  background: var(--accent);
+  border-radius: var(--radius);
+  align-items: center;
+}
+
+.quote-price span {
+  color: var(--on-accent);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quote-price span em {
+  display: block;
+  font-style: normal;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.quote-price strong {
+  color: var(--on-accent);
+  font-size: 28px;
+}
+
+.quote-costline {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 16px;
+  margin-top: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.quote-costline strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.quote-group {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+/* ---------- invoice: classic letterhead (forest + cream) ----------
+ * The invoice is paper: fixed colours (white in both themes, prints the
+ * same). Serif company name, green rule, cream table header, total boxed
+ * in green. */
+.inv-header {
+  border-bottom: 3px solid #1f5c45;
+}
+
+.inv-company {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 23px;
+  font-weight: 400;
+}
+
+.inv-title {
+  color: #1f5c45;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+}
+
+.inv-table th {
+  background: #f6f2ea;
+  border-bottom: 1px solid #e4ddcf;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.inv-total-row.grand {
+  border-top: none;
+  margin-top: 6px;
+  padding: 9px 12px;
+  background: #1f5c45;
+  color: #ffffff;
+  border-radius: 6px;
+}
+
+.inv-total-row.grand .inv-edit:hover {
+  border-bottom-color: #ffffff;
+}
+
+/* ledger rows reuse .quote-cat (tests + Excel parity) but not its card look */
+.quote-ledger tr.quote-cat {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+.inv-table th.inv-right {
+  text-align: right;
 }
