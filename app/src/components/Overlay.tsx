@@ -76,7 +76,8 @@ interface OverlayProps {
   onSelect(id: string | null): void;
   onDeleteMeasurement(id: string): void;
   onQuickAreaClick(p: PagePoint): void;
-  onOpeningClick(p: PagePoint): void;
+  /** p in stored page space; shown is the same point as displayed (rotated). */
+  onOpeningClick(p: PagePoint, shown: PagePoint): void;
   /** Bump to clear in-progress interaction (Escape). */
   resetSignal: number;
   /** Bump to finish the current chain (Enter / double-click). */
@@ -106,6 +107,9 @@ export default function Overlay(props: OverlayProps) {
   /** Calibrate clicks are processed in order — the dimension probe is async,
    *  and rapid clicks must not race each other. */
   const probeChain = useRef<Promise<void>>(Promise.resolve());
+  /** Bumped on every external reset; a queued scale click from before the
+   *  reset (e.g. the page changed while its dimension probe ran) is dropped. */
+  const resetEpoch = useRef(0);
 
   const cScale = '#e15b00'; // set-scale picking
   const cActive = '#1a66cc'; // selection highlight
@@ -141,7 +145,7 @@ export default function Overlay(props: OverlayProps) {
       : rot === 180
         ? { x: baseW - p.x, y: baseH - p.y }
         : rot === 270
-          ? { x: baseH - p.y, y: p.x }
+          ? { x: baseW - p.y, y: p.x }
           : p;
 
   const toPage = (sx: number, sy: number): PagePoint =>
@@ -199,8 +203,9 @@ export default function Overlay(props: OverlayProps) {
     }
   };
 
-  // External reset (Escape / mode change)
+  // External reset (Escape / mode change / page change)
   useEffect(() => {
+    resetEpoch.current++;
     pendingRef.current = null;
     setPending(null);
     setChain([]);
@@ -651,10 +656,13 @@ export default function Overlay(props: OverlayProps) {
       // Serialized: the dimension probe is async, and two quick clicks must
       // still land as point 1 and point 2 in order.
       const clickMode = mode;
+      const epoch = resetEpoch.current;
       probeChain.current = probeChain.current.then(async () => {
+        if (epoch !== resetEpoch.current) return;
         // Click-a-dimension: in Set Scale mode, a click that lands on written
         // dimension text reads it (and is NOT one of the two points).
         if (clickMode === 'calibrate' && props.onProbeDimension && (await props.onProbeDimension(p))) return;
+        if (epoch !== resetEpoch.current) return;
         if (!pendingRef.current) {
           pendingRef.current = p;
           setPending(p);
@@ -680,7 +688,7 @@ export default function Overlay(props: OverlayProps) {
     }
 
     if (mode === 'openings') {
-      props.onOpeningClick(p);
+      props.onOpeningClick(p, rotFwd(p));
       return;
     }
 

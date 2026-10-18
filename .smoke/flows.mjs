@@ -1,3 +1,6 @@
+/* SUPERSEDED (v0.3-era): opens a PDF without the v0.6 project flow and uses
+ * the old scale dialog markup. Scale + double-check flows are covered by
+ * scale-regression.mjs and features.mjs — kept for reference, not run. */
 import { chromium } from 'playwright-core';
 
 const EXE =
@@ -12,7 +15,7 @@ await page.goto('http://localhost:5199/', { waitUntil: 'networkidle' });
 
 // --- axis-check happy path: calibrate, then verify with a matching value ---
 await page.setInputFiles('input[type=file]',
-  'C:/Users/Nicholas/paint-takeoff/sample-plans/residential-permit-chicago-townhouse.pdf');
+  'C:/Users/Nicholas/Desktop/coding/paint-takeoff/sample-plans/residential-permit-chicago-townhouse.pdf');
 await page.waitForFunction(() => {
   const c = document.querySelector('.pdf-canvas');
   return c && c.width > 400;
@@ -41,7 +44,7 @@ console.log('toast:', toast);
 // --- reload: calibration should be restored from localStorage ---
 await page.reload({ waitUntil: 'networkidle' });
 await page.setInputFiles('input[type=file]',
-  'C:/Users/Nicholas/paint-takeoff/sample-plans/residential-permit-chicago-townhouse.pdf');
+  'C:/Users/Nicholas/Desktop/coding/paint-takeoff/sample-plans/residential-permit-chicago-townhouse.pdf');
 await page.waitForFunction(() => {
   const c = document.querySelector('.pdf-canvas');
   return c && c.width > 400;
@@ -52,7 +55,7 @@ console.log('badge after reload:', await page.locator('.scale-badge').textConten
 await page.evaluate(() => localStorage.clear());
 const t0 = Date.now();
 await page.setInputFiles('input[type=file]',
-  'C:/Users/Nicholas/paint-takeoff/sample-plans/commercial-school-bid-set-princeton.pdf');
+  'C:/Users/Nicholas/Desktop/coding/paint-takeoff/sample-plans/commercial-school-bid-set-princeton.pdf');
 await page.waitForFunction(() => {
   const c = document.querySelector('.pdf-canvas');
   return c && c.width > 400;

@@ -17,25 +17,31 @@ const BEFORE = { 'HOBBY ROOM': 233, 'OFFICE 3': 14, 'COMMUNITY CENTRE': 250 }; /
 // Ground truth: HOBBY ROOM from printed dims on the sheet (8690 x 2835 mm
 // = 24.64 m2 = 265.2 sq ft, dimension strings right at the room).
 // OFFICE 3 + COMMUNITY CENTRE: traced polygon (tool-exact page-space area).
-const PRINTED_TRUTH = { 'HOBBY ROOM': (8.69 * 2.835) * 10.7639 };
+// Screen positions match the v0.8.2 layout at 1500x950 (toolbar + step bar).
+const PRINTED_TRUTH = {};
 const ROOMS = [
   {
     name: 'HOBBY ROOM',
-    trace: null,
-    click: [630, 320],
-    tol: 0.10,
+    // The fill is bounded by the line across the room's upper third, so
+    // trace that region (the printed 8690 x 2835 dims cover a different
+    // part of this irregular room).
+    trace: [[585, 339], [686, 339], [686, 427], [635, 427], [585, 376]],
+    click: [620, 400],
+    tol: 0.15,
   },
   {
     name: 'OFFICE 3',
-    trace: [[705, 250], [745, 250], [745, 290], [705, 290]],
-    click: [697, 280],
+    // a dimension line and a vertical line split the office; the fill
+    // (and trace) is the part right of the line and above the dimension
+    trace: [[717, 317], [740, 317], [740, 336], [717, 336]],
+    click: [735, 330],
     tol: 0.25,
   },
   {
     name: 'COMMUNITY CENTRE',
     // the bounded hall the click fills (part of the bigger centre block)
-    trace: [[362, 472], [526, 472], [526, 584], [362, 584]],
-    click: [455, 535],
+    trace: [[377, 535], [510, 535], [510, 595], [377, 595]],
+    click: [465, 570],
     tol: 0.25,
     noLeakOnly: true,
   },

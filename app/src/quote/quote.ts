@@ -40,6 +40,9 @@ export interface PageTotals {
   trimM: number;
   ceilingM2: number;
   floorM2: number;
+  /** Gross wall area of Quick Area rooms only (the walls that come with a
+   *  measured floor). */
+  roomWallsGrossM2: number;
 }
 
 /** Aggregate one page's measurements into quote quantities. */
@@ -52,6 +55,7 @@ export function pageTotals(
   let trimM = 0;
   let ceilingM2 = 0;
   let floorM2 = 0;
+  let roomWallsGrossM2 = 0;
   for (const m of items) {
     if (m.kind === 'length' && (m.purpose ?? 'wall') === 'wall') {
       wallsGrossM2 += m.totalMeters * (m.wallHeightM ?? defaultHeightM);
@@ -61,6 +65,7 @@ export function pageTotals(
       ceilingM2 += m.areaM2;
     } else if (m.kind === 'area') {
       wallsGrossM2 += m.perimeterM * m.wallHeightM;
+      roomWallsGrossM2 += m.perimeterM * m.wallHeightM;
       floorM2 += m.floorAreaM2;
     }
   }
@@ -74,6 +79,7 @@ export function pageTotals(
     trimM,
     ceilingM2,
     floorM2,
+    roomWallsGrossM2,
   };
 }
 
@@ -153,9 +159,12 @@ function paintMathLinear(
   const coats = Math.max(1, Math.round(pb.coats));
   const materialSF = netSF * coats;
   const waste = sprayed ? pb.wasteSprayed : pb.wasteRolled;
-  const gallons = (materialSF / pb.coverage[pb.coverageChoice]) * (1 + waste);
+  // A 0 coverage or production rate (typed into the Price Book) would divide
+  // by zero and print $∞ — treat it as "not priced" instead.
+  const coverage = pb.coverage[pb.coverageChoice];
+  const gallons = coverage > 0 ? (materialSF / coverage) * (1 + waste) : 0;
   // Application hours: first coat full rate, later coats at the time factor.
-  const appHours = (netSF / productionPerHr) * (1 + (coats - 1) * pb.secondCoatFactor);
+  const appHours = productionPerHr > 0 ? (netSF / productionPerHr) * (1 + (coats - 1) * pb.secondCoatFactor) : 0;
   let hours = appHours * (1 + pb.prepShare);
   if (pb.highCeiling) hours *= 1 + pb.highCeilingAdder;
   const labourCost = hours * pb.labourRate;
@@ -207,8 +216,13 @@ export function computeQuote(
   // Not meaningful in Simple $/SF mode: that rate has no discrete coat cost.
   const pricePerWallSFPerCoat =
     pb.wallPricingMode === 'detailed' && netWallSF > 0 ? walls.price / (netWallSF * coats) : null;
-  // Floor area: measured rooms if any, else the wall÷3 assumption (spec).
-  const floorSF = floorSFMeasured > 0 ? floorSFMeasured : netWallSF / 3;
+  // Floor area: measured rooms if they cover (nearly) all the walls, else
+  // the wall÷3 assumption (spec). With only SOME rooms drawn as areas, the
+  // whole price over a partial floor inflated $/floor SF and raised a false
+  // warning.
+  const roomsCoverWalls = totals.wallsGrossM2 > 0 && totals.roomWallsGrossM2 >= 0.9 * totals.wallsGrossM2;
+  const useMeasuredFloor = floorSFMeasured > 0 && roomsCoverWalls;
+  const floorSF = useMeasuredFloor ? floorSFMeasured : netWallSF / 3;
   const pricePerFloorSF = floorSF > 0 ? totalPrice / floorSF : null;
   const labourShare = totalPrice > 0 ? totalLabourCost / totalPrice : null;
 
@@ -243,9 +257,10 @@ export function computeQuote(
       pricePerWallSF,
       pricePerWallSFPerCoat,
       pricePerFloorSF,
-      floorAssumption:
-        floorSFMeasured > 0
-          ? 'from your measured room floor areas'
+      floorAssumption: useMeasuredFloor
+        ? 'from your measured room floor areas'
+        : floorSFMeasured > 0
+          ? 'estimated as wall area ÷ 3 (only some rooms measured)'
           : 'estimated as wall area ÷ 3 (no rooms measured)',
       labourShare,
       gallons: walls.gallons + ceilings.gallons,
@@ -564,7 +579,7 @@ export function explainQuote(q: Quote, pb: PriceBook): string[] {
 
   if (q.ceilings.qty > 0) {
     lines.push(
-      `Ceilings: ${Math.round(q.ceilings.qty).toLocaleString('en-CA')} SF × ${coats} coats ÷ ${pb.coverage[pb.coverageChoice]} SF/gal = ${q.ceilings.gallons.toFixed(1)} gal; ${q.ceilings.hours.toFixed(1)} hr @ $${pb.labourRate}/hr. Cost ${fmtMoney(q.ceilings.cost)} × ${(1 + pb.margin).toFixed(2)} margin = ${fmtMoney(q.ceilings.price)}.`,
+      `Ceilings: ${Math.round(q.ceilings.qty).toLocaleString('en-CA')} SF × ${coats} coats ÷ ${pb.coverage[pb.coverageChoice]} SF/gal × ${(1 + pb.wasteRolled).toFixed(2)} waste factor = ${q.ceilings.gallons.toFixed(1)} gal; ${q.ceilings.hours.toFixed(1)} hr @ $${pb.labourRate}/hr. Cost ${fmtMoney(q.ceilings.cost)} × ${(1 + pb.margin).toFixed(2)} margin = ${fmtMoney(q.ceilings.price)}.`,
     );
   }
 

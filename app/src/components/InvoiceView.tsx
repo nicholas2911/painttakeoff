@@ -82,6 +82,9 @@ function EditableMoney(props: { value: number; onChange(v: number): void }) {
 /** The invoice maker — a preview that IS the editor. */
 export default function InvoiceView(props: {
   draft: InvoiceDraft;
+  /** The quote has changed since this invoice's lines were built. */
+  stale?: boolean;
+  onRebuild?(): void;
   onChange(d: InvoiceDraft): void;
   onSavePdf(): void;
   onClose(): void;
@@ -96,6 +99,14 @@ export default function InvoiceView(props: {
   return (
     <div className="modal-backdrop invoice-backdrop">
       <div className="modal invoice-modal">
+        {props.stale && props.onRebuild && (
+          <div className="invoice-stale">
+            <span>The quote has changed since this invoice was made.</span>
+            <button className="tool" onClick={props.onRebuild}>
+              Update from quote
+            </button>
+          </div>
+        )}
         <div className="invoice-doc">
           <div className="inv-header">
             <div className="inv-logo-slot">your logo</div>

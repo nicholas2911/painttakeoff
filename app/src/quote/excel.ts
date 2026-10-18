@@ -2,9 +2,14 @@ import * as XLSX from 'xlsx';
 import type { Measurement, OpeningMeasurement } from '../measure/measureStore';
 import type { PriceBook } from './priceBook';
 import type { AddOnPriced, Quote, QuoteGroup } from './quote';
-import { ADD_ON_SOURCES, pageTotals, fmtMoney } from './quote';
+import { ADD_ON_SOURCES, pageTotals } from './quote';
 
 const SQFT_PER_M2 = 10.7639;
+
+type Cell = string | number | XLSX.CellObject;
+/** Money as a real number cell (rounded to the cent, $ format) so it can be
+ *  summed and checked in Excel — not a "$1,234.56" text string. */
+const money = (x: number): XLSX.CellObject => ({ t: 'n', v: Math.round(x * 100) / 100, z: '$#,##0.00' });
 const FT_PER_M = 3.28084;
 
 interface PageInput {
@@ -14,8 +19,8 @@ interface PageInput {
   deduct: boolean;
 }
 
-function measurementRows(pages: PageInput[]): (string | number)[][] {
-  const rows: (string | number)[][] = [
+function measurementRows(pages: PageInput[]): Cell[][] {
+  const rows: Cell[][] = [
     ['PaintTakeoff quote — measurements'],
     [],
     ['Page', 'Label', 'Kind', 'Length LF', 'Height ft', 'Gross SF', 'Deductions SF', 'Net SF', 'Ceiling SF', 'Trim LF'],
@@ -38,7 +43,7 @@ function measurementRows(pages: PageInput[]): (string | number)[][] {
           purpose === 'wall' ? +(heightM * FT_PER_M).toFixed(1) : '',
           purpose === 'wall' ? +gross.toFixed(1) : '',
           purpose === 'wall' ? +(deductM2 * SQFT_PER_M2).toFixed(1) : '',
-          purpose === 'wall' ? +((gross - deductM2 * SQFT_PER_M2)).toFixed(1) : '',
+          purpose === 'wall' ? +Math.max(0, gross - deductM2 * SQFT_PER_M2).toFixed(1) : '',
           '',
           purpose === 'trim' ? +(m.totalMeters * FT_PER_M).toFixed(1) : '',
         ]);
@@ -58,7 +63,7 @@ function measurementRows(pages: PageInput[]): (string | number)[][] {
           +(m.wallHeightM * FT_PER_M).toFixed(1),
           +gross.toFixed(1),
           +(deductM2 * SQFT_PER_M2).toFixed(1),
-          +(gross - deductM2 * SQFT_PER_M2).toFixed(1),
+          +Math.max(0, gross - deductM2 * SQFT_PER_M2).toFixed(1),
           '',
           '',
         ]);
@@ -95,9 +100,9 @@ function measurementRows(pages: PageInput[]): (string | number)[][] {
   return rows;
 }
 
-function quoteRows(quote: Quote, pb: PriceBook, addOns: AddOnPriced[]): (string | number)[][] {
+function quoteRows(quote: Quote, pb: PriceBook, addOns: AddOnPriced[]): Cell[][] {
   const cat = (name: string, unit: string, c: Quote['walls']) => [
-    [name, +c.qty.toFixed(1), unit, `${c.hours.toFixed(2)} hr`, `${c.gallons.toFixed(2)} gal`, fmtMoney(c.cost), fmtMoney(c.price)],
+    [name, +c.qty.toFixed(1), unit, `${c.hours.toFixed(2)} hr`, `${c.gallons.toFixed(2)} gal`, money(c.cost), money(c.price)],
   ];
   const addOnsCost = addOns.reduce((s, a) => s + a.cost, 0);
   const addOnsPrice = addOns.reduce((s, a) => s + a.price, 0);
@@ -106,15 +111,15 @@ function quoteRows(quote: Quote, pb: PriceBook, addOns: AddOnPriced[]): (string 
     [],
     ['Line item', 'Qty', 'Unit', 'Labour hours', 'Gallons', 'Cost', 'Price'],
     ...(pb.wallPricingMode === 'simple'
-      ? [['Walls (net, simple $/SF)', +quote.walls.qty.toFixed(1), 'SF', '', '', fmtMoney(quote.walls.cost), fmtMoney(quote.walls.price)]]
+      ? [['Walls (net, simple $/SF)', +quote.walls.qty.toFixed(1), 'SF', '', '', money(quote.walls.cost), money(quote.walls.price)]]
       : cat('Walls (net)', 'SF', quote.walls)),
     ...cat('Ceilings', 'SF', quote.ceilings),
     ...cat('Trim', 'LF', quote.trim),
     ...(quote.heavyPrepCost > 0
-      ? [['Heavy prep adder', '', '', '', '', fmtMoney(quote.heavyPrepCost), fmtMoney(quote.heavyPrepCost * (1 + pb.margin))]]
+      ? [['Heavy prep adder', '', '', '', '', money(quote.heavyPrepCost), money(quote.heavyPrepCost * (1 + pb.margin))]]
       : []),
     [],
-    ['MEASURED TOTAL', '', '', `${quote.totalHours.toFixed(2)} hr`, `${quote.totalGallons.toFixed(2)} gal`, fmtMoney(quote.totalCost), fmtMoney(quote.totalPrice)],
+    ['MEASURED TOTAL', '', '', `${quote.totalHours.toFixed(2)} hr`, `${quote.totalGallons.toFixed(2)} gal`, money(quote.totalCost), money(quote.totalPrice)],
     ...(addOns.length
       ? [
           [],
@@ -125,19 +130,19 @@ function quoteRows(quote: Quote, pb: PriceBook, addOns: AddOnPriced[]): (string 
             ADD_ON_SOURCES.find(([s]) => s === a.source)?.[2] ?? '',
             '',
             '',
-            fmtMoney(a.cost),
-            fmtMoney(a.price),
+            money(a.cost),
+            money(a.price),
           ]),
-          ['ADD-ONS TOTAL', '', '', '', '', fmtMoney(addOnsCost), fmtMoney(addOnsPrice)],
+          ['ADD-ONS TOTAL', '', '', '', '', money(addOnsCost), money(addOnsPrice)],
           [],
-          ['GRAND TOTAL', '', '', '', '', fmtMoney(quote.totalCost + addOnsCost), fmtMoney(quote.totalPrice + addOnsPrice)],
+          ['GRAND TOTAL', '', '', '', '', money(quote.totalCost + addOnsCost), money(quote.totalPrice + addOnsPrice)],
         ]
       : []),
     [],
     ['Cross-metrics'],
-    ['Price per SF wall', quote.cross.pricePerWallSF !== null ? fmtMoney(quote.cross.pricePerWallSF) : '—'],
-    ['Price per SF wall, per coat', quote.cross.pricePerWallSFPerCoat !== null ? fmtMoney(quote.cross.pricePerWallSFPerCoat) : '—'],
-    ['Price per SF floor', quote.cross.pricePerFloorSF !== null ? fmtMoney(quote.cross.pricePerFloorSF) : '—', quote.cross.floorAssumption],
+    ['Price per SF wall', quote.cross.pricePerWallSF !== null ? money(quote.cross.pricePerWallSF) : '—'],
+    ['Price per SF wall, per coat', quote.cross.pricePerWallSFPerCoat !== null ? money(quote.cross.pricePerWallSFPerCoat) : '—'],
+    ['Price per SF floor', quote.cross.pricePerFloorSF !== null ? money(quote.cross.pricePerFloorSF) : '—', quote.cross.floorAssumption],
     ['Labour share', quote.cross.labourShare !== null ? `${(quote.cross.labourShare * 100).toFixed(0)}%` : '—'],
     ['Gallons total', `${quote.cross.gallons.toFixed(2)} gal`],
     ...(quote.warnings.length ? [[], ['WARNINGS'], ...quote.warnings.map((w) => [w])] : []),
@@ -161,8 +166,8 @@ function quoteRows(quote: Quote, pb: PriceBook, addOns: AddOnPriced[]): (string 
 
 /** Breakdown sheet: one block per group (room/page/whole project) with a
  *  subtotal per group and a grand total that matches the Quote sheet. */
-function breakdownRows(groups: QuoteGroup[], quote: Quote, pb: PriceBook): (string | number)[][] {
-  const rows: (string | number)[][] = [
+function breakdownRows(groups: QuoteGroup[], quote: Quote, pb: PriceBook, addOns: AddOnPriced[]): Cell[][] {
+  const rows: Cell[][] = [
     ['PaintTakeoff quote — breakdown'],
     [],
     ['Group', 'Where', 'Item', 'Qty', 'Unit', 'Labour hours', 'Gallons', 'Cost', 'Price'],
@@ -175,8 +180,8 @@ function breakdownRows(groups: QuoteGroup[], quote: Quote, pb: PriceBook): (stri
     unit,
     +c.hours.toFixed(2),
     +c.gallons.toFixed(2),
-    fmtMoney(c.cost),
-    fmtMoney(c.price),
+    money(c.cost),
+    money(c.price),
   ];
   for (const g of groups) {
     if (g.walls.qty !== 0) rows.push(catRow(g, 'Walls (net)', 'SF', g.walls));
@@ -191,13 +196,24 @@ function breakdownRows(groups: QuoteGroup[], quote: Quote, pb: PriceBook): (stri
         '',
         '',
         '',
-        fmtMoney(g.heavyPrepCost),
-        fmtMoney(g.heavyPrepCost * (1 + pb.margin)),
+        money(g.heavyPrepCost),
+        money(g.heavyPrepCost * (1 + pb.margin)),
       ]);
-    rows.push([`${g.title} — subtotal`, '', '', '', '', '', '', fmtMoney(g.totalCost), fmtMoney(g.totalPrice)]);
+    rows.push([`${g.title} — subtotal`, '', '', '', '', '', '', money(g.totalCost), money(g.totalPrice)]);
     rows.push([]);
   }
-  rows.push(['GRAND TOTAL', '', '', '', '', `${quote.totalHours.toFixed(2)} hr`, `${quote.totalGallons.toFixed(2)} gal`, fmtMoney(quote.totalCost), fmtMoney(quote.totalPrice)]);
+  // Same grand total as the Quote sheet and the on-screen QUOTE PRICE:
+  // measured groups plus the manual add-ons.
+  const addOnsCost = addOns.reduce((t, x) => t + x.cost, 0);
+  const addOnsPrice = addOns.reduce((t, x) => t + x.price, 0);
+  if (addOns.length) {
+    rows.push(['MEASURED TOTAL', '', '', '', '', `${quote.totalHours.toFixed(2)} hr`, `${quote.totalGallons.toFixed(2)} gal`, money(quote.totalCost), money(quote.totalPrice)]);
+    rows.push([]);
+    for (const x of addOns)
+      rows.push(['Add-ons (manual)', '', x.label, x.qty, ADD_ON_SOURCES.find(([src]) => src === x.source)?.[2] ?? '', '', '', money(x.cost), money(x.price)]);
+    rows.push([]);
+  }
+  rows.push(['GRAND TOTAL', '', '', '', '', `${quote.totalHours.toFixed(2)} hr`, `${quote.totalGallons.toFixed(2)} gal`, money(quote.totalCost + addOnsCost), money(quote.totalPrice + addOnsPrice)]);
   return rows;
 }
 
@@ -218,7 +234,7 @@ export function exportQuoteXlsx(opts: {
   const ws2 = XLSX.utils.aoa_to_sheet(quoteRows(opts.quote, opts.priceBook, addOns));
   ws2['!cols'] = [{ wch: 24 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws2, 'Quote');
-  const ws3 = XLSX.utils.aoa_to_sheet(breakdownRows(opts.groups, opts.quote, opts.priceBook));
+  const ws3 = XLSX.utils.aoa_to_sheet(breakdownRows(opts.groups, opts.quote, opts.priceBook, addOns));
   ws3['!cols'] = [{ wch: 26 }, { wch: 26 }, { wch: 16 }, { wch: 10 }, { wch: 6 }, { wch: 13 }, { wch: 9 }, { wch: 12 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws3, 'Breakdown');
   XLSX.writeFile(wb, opts.fileName);

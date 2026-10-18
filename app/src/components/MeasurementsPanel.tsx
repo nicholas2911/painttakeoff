@@ -82,7 +82,9 @@ function HeightInput(props: {
       onFocus={() => setText(shown)}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
-        const parsed = text !== null ? parseLengthToMeters(text, props.units) : null;
+        // Untouched (just focused and left) → no commit: that would pin a
+        // wall that follows the default and add a history entry.
+        const parsed = text !== null && text !== shown ? parseLengthToMeters(text, props.units) : null;
         if (parsed !== null && parsed > 0 && parsed < 100) props.onCommit(parsed);
         setText(null);
       }}

@@ -28,6 +28,17 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
 
+      # A tag that doesn't match package.json would publish a release whose
+      # files carry a different version than its tag — refuse it up front.
+      - name: Check tag matches package.json version
+        shell: bash
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version ($expected)"
+            exit 1
+          fi
+
       - name: Install dependencies
         run: npm ci
 

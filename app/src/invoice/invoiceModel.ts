@@ -38,7 +38,11 @@ const DRAFT_PREFIX = 'pt:v1:invoices:';
  *  is a no-op instead of burning another number on every re-save; only
  *  advances the counter the first time a given number is actually used. */
 export function commitInvoiceNumber(invoiceNumber: string): void {
-  const n = parseInt(invoiceNumber.replace(/^INV-/, ''), 10);
+  // Only our own INV-#### numbers move the counter — a hand-typed
+  // "2026-001" must not parse as 2026 and jump the next one to INV-2027.
+  const m = /^INV-(\d+)$/.exec(invoiceNumber.trim());
+  if (!m) return;
+  const n = parseInt(m[1], 10);
   if (!Number.isFinite(n)) return;
   try {
     const current = parseInt(localStorage.getItem(COUNTER_KEY) ?? '0', 10) || 0;
@@ -87,12 +91,15 @@ export function invoiceMath(d: InvoiceDraft): {
   total: number;
 } {
   const subtotal = d.subtotalOverride ?? d.lines.reduce((s, l) => s + l.amount, 0);
+  // Each tax is rounded to the cent as printed, so the printed lines
+  // always add up to the printed total.
+  const cents = (x: number) => Math.round(x * 100) / 100;
   const taxAmounts = d.taxRows.map((r) => ({
     label: r.label,
     rate: r.rate,
-    amount: r.on ? subtotal * r.rate : 0,
+    amount: r.on ? cents(subtotal * r.rate) : 0,
   }));
   const tax = taxAmounts.reduce((s, t) => s + t.amount, 0);
-  const total = d.totalOverride ?? subtotal + tax;
+  const total = d.totalOverride ?? cents(subtotal + tax);
   return { subtotal, taxAmounts, tax, total };
 }

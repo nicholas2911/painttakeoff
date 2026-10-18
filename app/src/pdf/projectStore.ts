@@ -98,17 +98,21 @@ export async function deletePdfBytes(id: string): Promise<void> {
 /** Remove a project's per-page data too (scales, measurements, settings,
  *  the scratch overlay) plus its per-project rows (quote overrides,
  *  manual add-ons, invoice draft) — everything keyed by fingerprint or id. */
-export function deleteProjectData(fingerprint: string, projectId: string): void {
-  const prefixes = [
-    `pt:v1:scale:${fingerprint}:`,
-    `pt:v1:measure:${fingerprint}:`,
-    `pt:v1:pagesettings:${fingerprint}:`,
-    `pt:v1:scratch:${fingerprint}:`,
-  ];
+export function deleteProjectData(fingerprint: string | null, projectId: string): void {
+  const prefixes =
+    fingerprint === null
+      ? []
+      : [
+          `pt:v1:scale:${fingerprint}:`,
+          `pt:v1:measure:${fingerprint}:`,
+          `pt:v1:pagesettings:${fingerprint}:`,
+          `pt:v1:scratch:${fingerprint}:`,
+        ];
   const singleKeys = [
     `pt:v1:quoteoverrides:${projectId}`,
     `pt:v1:addons:${projectId}`,
     `pt:v1:invoices:${projectId}`,
+    ...(fingerprint === null ? [] : [`pt:v1:pageprops:${fingerprint}`]),
   ];
   const doomed: string[] = [...singleKeys];
   try {
@@ -124,7 +128,12 @@ export function deleteProjectData(fingerprint: string, projectId: string): void 
 
 export function deleteProject(id: string): void {
   const project = loadProjects().find((p) => p.id === id);
-  saveProjects(loadProjects().filter((p) => p.id !== id));
+  const remaining = loadProjects().filter((p) => p.id !== id);
+  saveProjects(remaining);
   void deletePdfBytes(id);
-  if (project) deleteProjectData(project.fingerprint, id);
+  if (!project) return;
+  // Per-page data is keyed by PDF fingerprint, so a second project made from
+  // the same PDF shares it — only wipe it when no other project uses it.
+  const shared = remaining.some((p) => p.fingerprint === project.fingerprint);
+  deleteProjectData(shared ? null : project.fingerprint, id);
 }

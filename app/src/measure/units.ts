@@ -16,7 +16,9 @@ export const POINTS_PER_INCH = 72;
 export function parseMixedNumber(text: string): number | null {
   const t = text.trim();
   if (t === '') return 0;
-  const frac = /^(\d+(?:\.\d+)?)[\s-]*\+?[\s-]*(\d+)\s*\/\s*(\d+)$/.exec(t);
+  // Whole number and fraction need a separator (space, dash or +), or
+  // "15/16" would read as 1 + 5/16.
+  const frac = /^(\d+(?:\.\d+)?)(?:\s*\+\s*|[\s-]+)(\d+)\s*\/\s*(\d+)$/.exec(t);
   if (frac) {
     const denom = parseFloat(frac[3]);
     if (denom === 0) return null;

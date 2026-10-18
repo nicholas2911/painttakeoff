@@ -3055,6 +3055,9 @@ body {
  * the left instead of a full tinted wash. */
 .toolbar {
   box-shadow: var(--shadow-sm);
+  /* above everything in the viewer (scratch banner, overlays) so the
+   * Edit / Fit dropdowns are never covered */
+  z-index: 20;
 }
 
 .big-tool.active,
@@ -3078,4 +3081,19 @@ input[type='checkbox'],
 input[type='radio'],
 input[type='range'] {
   accent-color: var(--accent);
+}
+
+/* invoice: the quote changed after this invoice was made */
+.invoice-stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  color: var(--warn);
+  font-size: 13.5px;
 }

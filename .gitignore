@@ -17,3 +17,4 @@ SEND-TO-FRIEND.zip
 guide/*.pdf
 SEND-TO-FRIEND*/
 SEND-TO-FRIEND*.zip
+.smoke/.audit-fixes-unit.bundle.mjs

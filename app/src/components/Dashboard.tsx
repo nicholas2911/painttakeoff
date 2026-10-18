@@ -38,6 +38,12 @@ const WHATS_NEW: Record<string, string[]> = {
     'A visual refresh — refined colors, friendlier buttons and dialogs, and a cleaner first-run screen.',
     'Fixed: invoice numbers no longer skip ahead when you re-save the same invoice, and deleting a project now cleans up everything it left behind.',
   ],
+  '0.8.2': [
+    'New look: forest green and cream, with a light/dark switch (moon/sun) at the top of the window.',
+    'Measuring fixes: each wall keeps the height it was drawn at, plan dimensions like 7’-0″ fill in correctly, 15/16″ reads right, and rotated pages line up with your clicks.',
+    'Quote and invoice fixes: add-ons now appear on the invoice, tax lines add up to the cent, and an invoice tells you when the quote has changed since.',
+    'Quick Area room sizes are more accurate, and opening a PDF while the app is already running now uses the same window.',
+  ],
 };
 
 const TIPS = [

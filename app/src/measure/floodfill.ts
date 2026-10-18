@@ -489,6 +489,34 @@ export function dilateMask(m: Uint8Array, w: number, h: number, passes: number):
   return cur;
 }
 
+/**
+ * Grow a mask outward by up to `passes` pixels without entering `blocked`
+ * (4-neighbour, one ring per pass). Used to bring a fill made against a
+ * thickened barrier back out to the real wall lines.
+ */
+export function growWithin(
+  m: Uint8Array,
+  blocked: Uint8Array,
+  w: number,
+  h: number,
+  passes: number,
+): Uint8Array {
+  let cur = m;
+  for (let p = 0; p < passes; p++) {
+    const out = cur.slice();
+    for (let y = 1; y < h - 1; y++) {
+      const row = y * w;
+      for (let x = 1; x < w - 1; x++) {
+        const i = row + x;
+        if (cur[i] || blocked[i]) continue;
+        if (cur[i - 1] || cur[i + 1] || cur[i - w] || cur[i + w]) out[i] = 1;
+      }
+    }
+    cur = out;
+  }
+  return cur;
+}
+
 /** 4-neighbour erosion of a mask by `passes` pixels. */
 export function erodeMask(m: Uint8Array, w: number, h: number, passes: number): Uint8Array {
   let cur = m;

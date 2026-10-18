@@ -71,6 +71,8 @@ console.log('  EXPECTED room groups: wall', pWall5.toFixed(2), 'leftover', pLeft
   'ceil', pCeil5.toFixed(2), 'trim5', pTrim5.toFixed(2), 'room6', pRoom6.toFixed(2), 'trim6', pTrim6.toFixed(2));
 
 const money = (s) => {
+  // Excel money cells are real numbers since v0.8.2; on-screen text is "$1,234.56".
+  if (typeof s === 'number') return s;
   const m = /(−|-)?\$([\d,.]+)/.exec(s ?? '');
   return m ? parseFloat(m[2].replace(/,/g, '')) * (m[1] ? -1 : 1) : NaN;
 };
@@ -206,9 +208,9 @@ check('Breakdown shows custom name', bText.includes('North wall, office 3'));
 check('Breakdown shows leftover group', bText.includes('Not tied to a room'));
 const subtotalPrices = bRows
   .filter((r) => typeof r[0] === 'string' && r[0].endsWith('— subtotal'))
-  .map((r) => money(String(r[8])));
+  .map((r) => money(r[8]));
 const grandRow = bRows.find((r) => r[0] === 'GRAND TOTAL');
-const excelGrand = money(String(grandRow?.[8]));
+const excelGrand = money(grandRow?.[8]);
 console.log(`  excel: ${subtotalPrices.length} subtotals sum ${subtotalPrices.reduce((a, b) => a + b, 0).toFixed(2)} vs grand row ${excelGrand}`);
 check('Breakdown subtotals sum to grand total row',
   subtotalPrices.length === roomSubtotals.length &&

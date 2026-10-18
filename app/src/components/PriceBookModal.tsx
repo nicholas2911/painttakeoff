@@ -6,6 +6,8 @@ function Num(props: {
   value: number;
   step?: number;
   onChange(v: number): void;
+  /** Must be > 0 (a rate the quote divides by). */
+  positive?: boolean;
 }) {
   return (
     <label className="pb-field">
@@ -17,7 +19,8 @@ function Num(props: {
         value={props.value}
         onChange={(e) => {
           const x = parseFloat(e.target.value);
-          if (Number.isFinite(x) && x >= 0) props.onChange(x);
+          // Rates we divide by (coverage, production) must be > 0.
+          if (Number.isFinite(x) && (props.positive ? x > 0 : x >= 0)) props.onChange(x);
         }}
       />
     </label>
@@ -28,7 +31,8 @@ function Pct(props: { label: string; value: number; onChange(v: number): void })
   return (
     <Num
       label={props.label}
-      value={Math.round(props.value * 100)}
+      // Up to 2 decimals so 12.5% shows as 12.5, not 13.
+      value={Math.round(props.value * 10000) / 100}
       onChange={(v) => props.onChange(v / 100)}
     />
   );
@@ -138,10 +142,10 @@ export default function PriceBookModal(props: {
               ]}
               onChange={(v) => set({ wallMethod: v })}
             />
-            <Num label="Cut & roll (SF/hr)" value={b.production.cutRoll} onChange={(v) => setProd({ cutRoll: v })} />
-            <Num label="Roll only (SF/hr)" value={b.production.rollOnly} onChange={(v) => setProd({ rollOnly: v })} />
-            <Num label="Spray (SF/hr)" value={b.production.spray} onChange={(v) => setProd({ spray: v })} />
-            <Num label="Textured (SF/hr)" value={b.production.textured} onChange={(v) => setProd({ textured: v })} />
+            <Num positive label="Cut & roll (SF/hr)" value={b.production.cutRoll} onChange={(v) => setProd({ cutRoll: v })} />
+            <Num positive label="Roll only (SF/hr)" value={b.production.rollOnly} onChange={(v) => setProd({ rollOnly: v })} />
+            <Num positive label="Spray (SF/hr)" value={b.production.spray} onChange={(v) => setProd({ spray: v })} />
+            <Num positive label="Textured (SF/hr)" value={b.production.textured} onChange={(v) => setProd({ textured: v })} />
             <Pct label="Second coat time (%)" value={b.secondCoatFactor} onChange={(v) => set({ secondCoatFactor: v })} />
             <Pct label="Prep share of hours (%)" value={b.prepShare} onChange={(v) => set({ prepShare: v })} />
           </div>
@@ -159,9 +163,9 @@ export default function PriceBookModal(props: {
               ]}
               onChange={(v) => set({ coverageChoice: v })}
             />
-            <Num label="Smooth (SF/gal)" value={b.coverage.smooth} onChange={(v) => setCov({ smooth: v })} />
-            <Num label="Textured (SF/gal)" value={b.coverage.textured} onChange={(v) => setCov({ textured: v })} />
-            <Num label="Primer (SF/gal)" value={b.coverage.primer} onChange={(v) => setCov({ primer: v })} />
+            <Num positive label="Smooth (SF/gal)" value={b.coverage.smooth} onChange={(v) => setCov({ smooth: v })} />
+            <Num positive label="Textured (SF/gal)" value={b.coverage.textured} onChange={(v) => setCov({ textured: v })} />
+            <Num positive label="Primer (SF/gal)" value={b.coverage.primer} onChange={(v) => setCov({ primer: v })} />
             <Select
               label="Paint grade"
               value={b.paintGrade}

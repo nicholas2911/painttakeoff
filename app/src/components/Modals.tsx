@@ -39,16 +39,11 @@ export function LengthBoxes(props: {
   /** The user typed into a box (vs. accepting a prefill). */
   onUserEdit?(): void;
 }) {
-  const [feet, setFeet] = useState(() => {
-    if (props.initialMeters == null) return '';
-    return String(Math.floor(props.initialMeters / 0.3048));
-  });
-  const [inches, setInches] = useState(() => {
-    if (props.initialMeters == null) return '';
-    const totalIn = props.initialMeters / 0.0254;
-    const rem = totalIn - Math.floor(totalIn / 12) * 12;
-    return String(Math.round(rem * 8) / 8);
-  });
+  // Feet and inches come from ONE rounded count of eighth-inches; flooring
+  // metres / 0.3048 on its own turned 7 ft 0 in (2.1335999… m) into 6 ft 0 in.
+  const eighths = props.initialMeters == null ? null : Math.round((props.initialMeters / 0.0254) * 8);
+  const [feet, setFeet] = useState(() => (eighths == null ? '' : String(Math.floor(eighths / 96))));
+  const [inches, setInches] = useState(() => (eighths == null ? '' : String((eighths % 96) / 8)));
   const [mmText, setMmText] = useState(() =>
     props.initialMeters == null ? '' : String(Math.round(props.initialMeters * 1000)),
   );

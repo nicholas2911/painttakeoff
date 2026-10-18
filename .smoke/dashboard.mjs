@@ -125,7 +125,7 @@ await page.waitForSelector('.dash-greeting');
 check('dismiss persists across reload', (await page.locator('.whatsnew').count()) === 0);
 
 // --- tips card ---
-check('tip renders', ((await page.locator('.dash-tip').textContent()) ?? '').includes('Did you know?'));
+check('tip renders', ((await page.locator('.dash-tip').textContent()) ?? '').includes('Tip'));
 
 await reopenProject(page);
 check('reopen after home keeps subset', (await page.locator('.page-label').textContent())?.includes('of 5'));

@@ -75,7 +75,7 @@ interface ViewerProps {
   onSelect(id: string | null): void;
   onDeleteMeasurement(id: string): void;
   onQuickAreaClick(p: PagePoint): void;
-  onOpeningClick(p: PagePoint): void;
+  onOpeningClick(p: PagePoint, shown: PagePoint): void;
   resetSignal: number;
   finishSignal: number;
   chainUndoSignal: number;

@@ -47,6 +47,7 @@ import {
   bigBarrierMask,
   cleanBarrierMap,
   dilateMask,
+  growWithin,
   floodFillFromBarrier,
   interiorPockets,
   maskPixelCount,
@@ -94,6 +95,7 @@ import {
   computeGroups,
   pageTotals,
   priceAddOns,
+  ADD_ON_SOURCES,
   loadQuoteOverrides,
   saveQuoteOverrides,
   loadAddOns,
@@ -195,6 +197,8 @@ export default function App() {
   const [renamingPresetId, setRenamingPresetId] = useState<string | null>(null);
   const [presetNameText, setPresetNameText] = useState('');
   const [pendingOpening, setPendingOpening] = useState<PagePoint | null>(null);
+  /** Same point in displayed (rotated) page space, for placing the popover. */
+  const [pendingOpeningShown, setPendingOpeningShown] = useState<PagePoint | null>(null);
   const [openingSizes, setOpeningSizes] = useState<OpeningSizes>(() => loadOpeningSizes());
   const [deduct, setDeduct] = useState(true);
   const [priceBook, setPriceBook] = useState<PriceBook>(() => loadPriceBook());
@@ -272,7 +276,7 @@ export default function App() {
     try {
       const res = await updates.checkNow();
       if (res.busy) return; // a check is already running — it will report itself
-      if (!res.ok) showToast('Couldn’t check — no internet connection.');
+      if (!res.ok) showToast('Couldn’t check for updates — check your internet connection, or try again later.');
       else if (res.latest) showToast(`You’re on the latest version (${pkg.version}).`);
       // update found: the flashing "New update" button appears via onState
     } catch {
@@ -512,6 +516,14 @@ export default function App() {
 
   const handleTwoPoints = useCallback(
     (kind: 'calibrate' | 'axisCheck', p1: PagePoint, p2: PagePoint) => {
+      // A double-click (or two clicks on the same spot) would give a zero
+      // or near-zero length — a scale of 1:Infinity that breaks every tool.
+      if (pointDistance(p1, p2) < 2) {
+        setFirstPointPlaced(false);
+        resetInteraction();
+        showToast('Those two clicks were on the same spot — click the two ends of something you know the length of.');
+        return;
+      }
       if (kind === 'calibrate') {
         setFlow({ step: 'enterLength', p1, p2 });
       } else {
@@ -522,13 +534,14 @@ export default function App() {
       }
       setFirstPointPlaced(false);
     },
-    [scale],
+    [scale, resetInteraction, showToast],
   );
 
   const handleCalibrationSubmit = useCallback(
     (meters: number) => {
       if (flow.step !== 'enterLength') return;
       const pts = pointDistance(flow.p1, flow.p2);
+      if (!(pts > 0) || !(meters > 0)) return;
       setPageScale({
         pointsPerMeter: pts / meters,
         verified: false,
@@ -824,6 +837,9 @@ export default function App() {
           label,
           points,
           totalMeters,
+          // Pin the height in force when it was drawn — otherwise changing
+          // the default later (or a Wall preset) silently re-prices it.
+          ...(isWall ? { wallHeightM: defaultHeightM } : {}),
           createdAt: Date.now(),
         },
       ];
@@ -842,6 +858,7 @@ export default function App() {
       showToast,
       measureKind,
       maybeShowRenameTip,
+      defaultHeightM,
     ],
   );
 
@@ -988,8 +1005,18 @@ export default function App() {
     setQaBusy(false);
   }, []);
 
+  // Changing page abandons anything half-done on the old page: an unfinished
+  // chain, the first click of a scale, an open Quick Area room. Otherwise the
+  // next click lands on the NEW page and mixes the two (a scale built from
+  // points on two pages, a page-2 room saved onto page 3).
+  useEffect(() => {
+    resetInteraction();
+    cancelQa();
+    setFlow((f) => (f.step === 'idle' ? f : { step: 'idle' }));
+  }, [pageNum, resetInteraction, cancelQa]);
+
   /** Display/area mask: the room's solid region (fill + interior holes +
-   *  their outlines, eroded back to the true wall face), minus cut-outs. */
+   *  their outlines, grown back out to the drawn wall lines), minus cut-outs. */
   const qaComposite = useCallback((sess: QaSession): FillMask => {
     const n = sess.base.data.length;
     const out = sess.base.data.slice();
@@ -1075,7 +1102,9 @@ export default function App() {
           // a leak (a huge fraction of the sheet filled).
           const rasterPx = raster.canvas.width * raster.canvas.height;
           let mask: FillMask | null = null;
+          let usedD = 0;
           for (const D of [6, 12, 18]) {
+            usedD = D;
             mask = floodFillFromBarrier(
               dilateMask(cleaned, raster.canvas.width, raster.canvas.height, D),
               raster.canvas.width,
@@ -1110,6 +1139,11 @@ export default function App() {
             showToast('Couldn’t find a closed shape there — try the middle of a room.');
             return;
           }
+          // The fill stopped D px short of every wall (the barrier was
+          // thickened to seal doors). Grow it back D px, never across a drawn
+          // line, so the area reaches the true wall faces. At a door it can
+          // only bulge D px into the opening — the thickened seal still holds.
+          mask = { ...mask, data: growWithin(mask.data, cleaned, mask.width, mask.height, usedD) };
           mask.pointsPerPixel = raster.pointsPerPixel;
           // The room's solid region: the fill plus its interior pockets
           // (text counters, fixture interiors). No wall pixels are added —
@@ -1342,8 +1376,11 @@ export default function App() {
 
   // If the current page loses its scale while measuring, fall back to pan.
   useEffect(() => {
-    if ((mode === 'measure' || mode === 'quickArea') && !scale) setMode('pan');
-  }, [mode, scale]);
+    if ((mode === 'measure' || mode === 'quickArea') && !scale) {
+      if (mode === 'quickArea') cancelQa();
+      setMode('pan');
+    }
+  }, [mode, scale, cancelQa]);
 
   // ---------- keyboard ----------
   useEffect(() => {
@@ -1502,8 +1539,12 @@ export default function App() {
         defaultHeightM,
         deduct: loadDeductOpenings(plan.fingerprint, parseInt(p, 10)),
       }))
-      .filter((pg) => pg.items.length > 0);
-  }, [plan, measurements, defaultHeightM]);
+      // Pages removed via Edit pages keep their data (in case they're added
+      // back) but must not count — same rule as the panel and dashboard.
+      .filter(
+        (pg) => pg.items.length > 0 && (selectedPages.length === 0 || selectedPages.includes(pg.pageNum - 1)),
+      );
+  }, [plan, measurements, defaultHeightM, selectedPages]);
 
   // ---------- per-quote overrides + manual add-ons ----------
   // Project-scoped, NOT the global Price Book: flipping paint grade / heavy
@@ -1593,9 +1634,10 @@ export default function App() {
           trimM: acc.trimM + t.trimM,
           ceilingM2: acc.ceilingM2 + t.ceilingM2,
           floorM2: acc.floorM2 + t.floorM2,
+          roomWallsGrossM2: acc.roomWallsGrossM2 + t.roomWallsGrossM2,
         };
       },
-      { wallsGrossM2: 0, openingsM2: 0, netWallM2: 0, trimM: 0, ceilingM2: 0, floorM2: 0 },
+      { wallsGrossM2: 0, openingsM2: 0, netWallM2: 0, trimM: 0, ceilingM2: 0, floorM2: 0, roomWallsGrossM2: 0 },
     );
     return computeQuote(totals, effectivePriceBook);
   }, [quotePages, effectivePriceBook]);
@@ -1670,20 +1712,14 @@ export default function App() {
     [editingProject, showToast],
   );
 
-  /** Build an invoice draft from the current quote + project. */
-  const startInvoice = useCallback(() => {
-    if (!currentProject) return;
-    const existing = loadInvoiceDraft(currentProject.id);
-    setQuoteOpen(false);
-    if (existing) {
-      setInvoiceDraft(existing);
-      return;
-    }
+  /** Invoice lines from the current quote — everything in QUOTE PRICE,
+   *  manual add-ons included. */
+  const buildInvoiceLines = useCallback((): InvoiceLine[] => {
     const round2 = (x: number) => Math.round(x * 100) / 100;
     const lines: InvoiceLine[] = [];
     if (quote.walls.qty > 0)
       lines.push({
-        description: `Walls — prep & paint, ${priceBook.coats} coats`,
+        description: `Walls — prep & paint, ${effectivePriceBook.coats} coats`,
         qty: `${Math.round(quote.walls.qty).toLocaleString()} SF`,
         amount: round2(quote.walls.price),
       });
@@ -1703,11 +1739,47 @@ export default function App() {
       lines.push({
         description: 'Heavy prep',
         qty: '',
-        amount: round2(quote.heavyPrepCost * (1 + priceBook.margin)),
+        amount: round2(quote.heavyPrepCost * (1 + effectivePriceBook.margin)),
       });
+    for (const a of addOnsPriced.items) {
+      const unit = ADD_ON_SOURCES.find(([s]) => s === a.source)?.[2] ?? '';
+      lines.push({
+        description: a.label,
+        qty: a.source === 'flat' ? '' : `${a.qty.toLocaleString()} ${unit}`,
+        amount: round2(a.price),
+      });
+    }
+    return lines;
+  }, [quote, effectivePriceBook, addOnsPriced]);
+
+  /** Does a saved invoice still match the quote it was made from? */
+  const invoiceIsStale = useCallback(
+    (d: InvoiceDraft) => {
+      const fresh = buildInvoiceLines();
+      const sum = (ls: InvoiceLine[]) => Math.round(ls.reduce((s, l) => s + l.amount, 0) * 100);
+      return sum(fresh) !== sum(d.lines);
+    },
+    [buildInvoiceLines],
+  );
+
+  /** Build an invoice draft from the current quote + project. */
+  const startInvoice = useCallback(() => {
+    if (!currentProject) return;
+    const existing = loadInvoiceDraft(currentProject.id);
+    setQuoteOpen(false);
+    if (existing) {
+      setInvoiceDraft(existing);
+      return;
+    }
+    const lines = buildInvoiceLines();
+    // Reserve the number now (not when the PDF is saved) — otherwise a
+    // second project's invoice, opened before this one is saved, gets the
+    // same number.
+    const invoiceNumber = peekInvoiceNumber();
+    commitInvoiceNumber(invoiceNumber);
     const due = new Date(Date.now() + 30 * 86400000);
-    setInvoiceDraft({
-      invoiceNumber: peekInvoiceNumber(),
+    const draft: InvoiceDraft = {
+      invoiceNumber,
       date: new Date().toISOString().slice(0, 10),
       dueDate: due.toISOString().slice(0, 10),
       fromCompany: currentProject.company,
@@ -1717,8 +1789,10 @@ export default function App() {
       notes: 'Payment due within 30 days. Thank you for your business!',
       subtotalOverride: null,
       totalOverride: null,
-    });
-  }, [currentProject, quote, priceBook]);
+    };
+    setInvoiceDraft(draft);
+    saveInvoiceDraft(currentProject.id, draft);
+  }, [currentProject, buildInvoiceLines]);
 
   const saveInvoicePdf = useCallback(async () => {
     if (!invoiceDraft || !currentProject) return;
@@ -2098,7 +2172,10 @@ export default function App() {
           onSelect={setSelectedId}
           onDeleteMeasurement={deleteActiveMeasurement}
           onQuickAreaClick={(p) => void handleQuickAreaClick(p)}
-          onOpeningClick={(p) => setPendingOpening(p)}
+          onOpeningClick={(p, shown) => {
+            setPendingOpening(p);
+            setPendingOpeningShown(shown);
+          }}
           resetSignal={resetSignal}
           finishSignal={finishSignal}
           chainUndoSignal={chainUndoSignal}
@@ -2124,8 +2201,8 @@ export default function App() {
         )}
         {pendingOpening && (
           <OpeningPopover
-            x={pendingOpening.x * view.zoom + view.panX + 14}
-            y={pendingOpening.y * view.zoom + view.panY - 10}
+            x={(pendingOpeningShown ?? pendingOpening).x * view.zoom + view.panX + 14}
+            y={(pendingOpeningShown ?? pendingOpening).y * view.zoom + view.panY - 10}
             units={units}
             sizes={openingSizes}
             onPick={pickOpening}
@@ -2417,6 +2494,12 @@ export default function App() {
       {invoiceDraft && currentProject && (
         <InvoiceView
           draft={invoiceDraft}
+          stale={invoiceIsStale(invoiceDraft)}
+          onRebuild={() => {
+            const d = { ...invoiceDraft, lines: buildInvoiceLines(), subtotalOverride: null, totalOverride: null };
+            setInvoiceDraft(d);
+            saveInvoiceDraft(currentProject.id, d);
+          }}
           onChange={(d) => {
             setInvoiceDraft(d);
             saveInvoiceDraft(currentProject.id, d);
