@@ -902,8 +902,10 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  font-weight: 700;
-  font-size: 14.5px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: 17px;
+  color: var(--accent);
   border-bottom: 1px solid var(--border);
 }
 
@@ -1013,6 +1015,7 @@ body {
 
 .mp-totals {
   border-top: 1px solid var(--border);
+  background: var(--bg-raised);
   padding: 10px 14px;
   display: flex;
   flex-direction: column;
@@ -1387,21 +1390,33 @@ body {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-raised);
+  padding: 10px 10px 6px;
+  background: none;
   border: none;
-  color: var(--text);
+  color: var(--text-dim);
   font: inherit;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   cursor: pointer;
   text-align: left;
 }
 
+.mp-section-header:hover {
+  color: var(--text);
+}
+
 .mp-section-count {
   margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  text-align: center;
   color: var(--text-dim);
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .mp-row-top {
@@ -1602,6 +1617,23 @@ body {
   overflow-y: auto;
 }
 
+.pricebook-modal {
+  width: 860px;
+}
+
+/* serif green modal titles, same voice as the quote and greeting */
+.pricebook-modal .modal-title,
+.picker-modal .modal-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: 24px;
+  color: var(--accent);
+}
+
+.pricebook-modal .modal-title .pb-sub {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
 .history-modal {
   width: 440px;
   max-height: calc(100vh - 80px);
@@ -1640,8 +1672,17 @@ body {
 .pb-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 18px;
+  gap: 12px;
   margin-top: 12px;
+}
+
+/* each rate group is a card with a green top rule */
+.pb-grid .pb-group {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 10px 12px 6px;
 }
 
 .pb-group-wide {
@@ -1672,9 +1713,11 @@ body {
 
 .pb-group-title {
   font-weight: 700;
-  font-size: 13.5px;
-  margin-bottom: 8px;
-  color: var(--accent-strong);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 6px;
+  color: var(--text-dim);
 }
 
 .pb-field {
@@ -1683,26 +1726,39 @@ body {
   justify-content: space-between;
   gap: 8px;
   font-size: 13px;
-  color: var(--text-dim);
-  margin-bottom: 6px;
+  color: var(--text);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pb-field:last-child {
+  border-bottom: none;
 }
 
 .pb-field input,
 .pb-field select {
-  width: 90px;
+  width: 84px;
   font: inherit;
   font-size: 13px;
-  padding: 5px 7px;
-  border: 1px solid var(--border);
+  padding: 4px 7px;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: var(--bg-raised);
+  background: var(--bg-panel);
   color: var(--text);
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-field input:focus,
+.pb-field select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .pb-field select {
   text-align: left;
-  width: 110px;
+  width: 128px;
 }
 
 .pb-check {
@@ -2252,8 +2308,9 @@ body {
   position: relative;
   border: 2px solid var(--border);
   border-radius: 9px;
-  background: var(--bg-raised);
+  background: var(--bg-panel);
   padding: 6px;
+  transition: border-color var(--transition), opacity var(--transition);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -2261,9 +2318,18 @@ body {
   gap: 5px;
 }
 
+/* unselected pages step back so the chosen set reads at a glance */
+.picker-card:not(.selected) {
+  opacity: 0.6;
+}
+
+.picker-card:not(.selected):hover {
+  opacity: 0.9;
+}
+
 .picker-card.selected {
   border-color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--bg-panel);
 }
 
 .picker-card img {
@@ -2271,6 +2337,7 @@ body {
   height: 110px;
   object-fit: contain;
   background: #fff;
+  border: 1px solid var(--border);
   border-radius: 4px;
 }
 

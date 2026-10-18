@@ -44,6 +44,11 @@ const WHATS_NEW: Record<string, string[]> = {
     'Quote and invoice fixes: add-ons now appear on the invoice, tax lines add up to the cent, and an invoice tells you when the quote has changed since.',
     'Quick Area room sizes are more accurate, and opening a PDF while the app is already running now uses the same window.',
   ],
+  '0.8.3': [
+    'The quote is now one clean line-item table, with the price in a green band and add-ons right in the list.',
+    'Invoices get a classic letterhead look — your company name in serif, a green rule, and the total boxed in green.',
+    'The Price Book, page picker and Measurements panel match the new forest-and-cream style, in light and dark.',
+  ],
 };
 
 const TIPS = [
