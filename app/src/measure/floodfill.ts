@@ -224,36 +224,55 @@ export function cleanBarrierMap(
     if (labels[i] !== -1 && !keep[labels[i]] && networkReach[i]) touches[labels[i]] = 1;
   }
 
+  // Within CLEAN_SEG_REACH dilation passes of these pixels (same edge rules
+  // as dilateMask), is there a wall-network pixel? Walks only that small
+  // neighbourhood instead of dilating full-page copies.
+  const reachesNetwork = (seeds: number[]): boolean => {
+    const seen = new Set<number>(seeds);
+    for (const s of seeds) if (network[s]) return true;
+    let frontier = seeds;
+    for (let pass = 1; pass <= CLEAN_SEG_REACH; pass++) {
+      const next: number[] = [];
+      for (const i of frontier) {
+        const x = i % w;
+        const y = (i / w) | 0;
+        const rowIn = y >= 1 && y <= h - 2;
+        const colIn = x >= 1 && x <= w - 2;
+        const nb = [rowIn && x >= 2 ? i - 1 : -1, rowIn && x <= w - 3 ? i + 1 : -1, colIn && y >= 2 ? i - w : -1, colIn && y <= h - 3 ? i + w : -1];
+        for (const j of nb) {
+          if (j < 0 || seen.has(j)) continue;
+          if (network[j]) return true;
+          seen.add(j);
+          next.push(j);
+        }
+      }
+      frontier = next;
+    }
+    return false;
+  };
+
   // Wall-segment rescue: does each end of this elongated component reach
   // the network within a few px?
   const endpointTouches = (c: Comp, id: number): boolean => {
     const horizontal = c.maxX - c.minX >= c.maxY - c.minY;
     const span = (horizontal ? c.maxX - c.minX : c.maxY - c.minY) + 1;
     const cap = Math.max(2, Math.round(span * 0.15));
-    const endA = new Uint8Array(n);
-    const endB = new Uint8Array(n);
-    for (let i = 0; i < n; i++) {
-      if (labels[i] !== id) continue;
-      const x = i % w;
-      const y = (i / w) | 0;
-      if (horizontal) {
-        if (x <= c.minX + cap) endA[i] = 1;
-        if (x >= c.maxX - cap) endB[i] = 1;
-      } else {
-        if (y <= c.minY + cap) endA[i] = 1;
-        if (y >= c.maxY - cap) endB[i] = 1;
+    const endA: number[] = [];
+    const endB: number[] = [];
+    for (let y = c.minY; y <= c.maxY; y++) {
+      for (let x = c.minX; x <= c.maxX; x++) {
+        const i = y * w + x;
+        if (labels[i] !== id) continue;
+        if (horizontal) {
+          if (x <= c.minX + cap) endA.push(i);
+          if (x >= c.maxX - cap) endB.push(i);
+        } else {
+          if (y <= c.minY + cap) endA.push(i);
+          if (y >= c.maxY - cap) endB.push(i);
+        }
       }
     }
-    const reachA = dilateMask(endA, w, h, CLEAN_SEG_REACH);
-    const reachB = dilateMask(endB, w, h, CLEAN_SEG_REACH);
-    let a = false;
-    let b = false;
-    for (let i = 0; i < n; i++) {
-      if (reachA[i] && network[i]) a = true;
-      if (reachB[i] && network[i]) b = true;
-      if (a && b) return true;
-    }
-    return false;
+    return reachesNetwork(endA) && reachesNetwork(endB);
   };
 
   comps.forEach((c, id) => {
@@ -436,9 +455,7 @@ export function interiorPockets(fill: Uint8Array, barrier: Uint8Array, w: number
     if (!nearFill) continue;
     // (b) interior test: everything within 3px of the pocket must be fill,
     // barrier, or the pocket itself.
-    const pocket = new Uint8Array(n);
-    for (const m of members) pocket[m] = 1;
-    if (holeIsInterior(fill, barrier, pocket, w, h)) {
+    if (ringIsInterior(fill, barrier, members, w, h)) {
       for (const m of members) out[m] = 1;
     }
     nextLabel++;
@@ -471,22 +488,57 @@ export function maskBoundaryEdges(mask: FillMask): number {
   return edges;
 }
 
+/**
+ * How many 4-neighbour dilation passes reach each pixel: 0 for pixels in `m`,
+ * k for pixels first set on pass k (k ≤ maxD), 255 for never. One BFS sweep
+ * — identical to running maxD passes (each pass copying the whole mask), at a
+ * fraction of the cost. Like those passes, pixels on the raster's outer edge
+ * are never newly set (only pixels already in `m` count there), and
+ * `blocked` pixels (optional) are never entered.
+ */
+export function dilationDepth(m: Uint8Array, w: number, h: number, maxD: number, blocked?: Uint8Array): Uint8Array {
+  const n = w * h;
+  const depth = new Uint8Array(n).fill(255);
+  const queue = new Int32Array(n);
+  let head = 0;
+  let tail = 0;
+  for (let i = 0; i < n; i++) {
+    if (m[i]) {
+      depth[i] = 0;
+      queue[tail++] = i;
+    }
+  }
+  const limit = Math.min(maxD, 254);
+  while (head < tail) {
+    const i = queue[head++];
+    const d = depth[i];
+    if (d >= limit) continue;
+    const x = i % w;
+    const y = (i / w) | 0;
+    // Only interior pixels are ever newly set (x 1..w-2, y 1..h-2).
+    const rowIn = y >= 1 && y <= h - 2;
+    const colIn = x >= 1 && x <= w - 2;
+    const nd = d + 1;
+    let j: number;
+    if (rowIn && x >= 2 && depth[(j = i - 1)] === 255 && !(blocked && blocked[j])) { depth[j] = nd; queue[tail++] = j; }
+    if (rowIn && x <= w - 3 && depth[(j = i + 1)] === 255 && !(blocked && blocked[j])) { depth[j] = nd; queue[tail++] = j; }
+    if (colIn && y >= 2 && depth[(j = i - w)] === 255 && !(blocked && blocked[j])) { depth[j] = nd; queue[tail++] = j; }
+    if (colIn && y <= h - 3 && depth[(j = i + w)] === 255 && !(blocked && blocked[j])) { depth[j] = nd; queue[tail++] = j; }
+  }
+  return depth;
+}
+
+/** Pixels within `d` dilation passes, from a dilationDepth map. */
+export function depthWithin(depth: Uint8Array, d: number): Uint8Array {
+  const out = new Uint8Array(depth.length);
+  for (let i = 0; i < depth.length; i++) if (depth[i] <= d) out[i] = 1;
+  return out;
+}
+
 /** 4-neighbour dilation of a mask by `passes` pixels. */
 export function dilateMask(m: Uint8Array, w: number, h: number, passes: number): Uint8Array {
-  let cur = m;
-  for (let p = 0; p < passes; p++) {
-    const out = cur.slice();
-    for (let y = 1; y < h - 1; y++) {
-      const row = y * w;
-      for (let x = 1; x < w - 1; x++) {
-        const i = row + x;
-        if (cur[i]) continue;
-        if (cur[i - 1] || cur[i + 1] || cur[i - w] || cur[i + w]) out[i] = 1;
-      }
-    }
-    cur = out;
-  }
-  return cur;
+  if (passes <= 0) return m.slice();
+  return depthWithin(dilationDepth(m, w, h, passes), passes);
 }
 
 /**
@@ -501,20 +553,8 @@ export function growWithin(
   h: number,
   passes: number,
 ): Uint8Array {
-  let cur = m;
-  for (let p = 0; p < passes; p++) {
-    const out = cur.slice();
-    for (let y = 1; y < h - 1; y++) {
-      const row = y * w;
-      for (let x = 1; x < w - 1; x++) {
-        const i = row + x;
-        if (cur[i] || blocked[i]) continue;
-        if (cur[i - 1] || cur[i + 1] || cur[i - w] || cur[i + w]) out[i] = 1;
-      }
-    }
-    cur = out;
-  }
-  return cur;
+  if (passes <= 0) return m.slice();
+  return depthWithin(dilationDepth(m, w, h, passes, blocked), passes);
 }
 
 /** 4-neighbour erosion of a mask by `passes` pixels. */
@@ -555,9 +595,34 @@ export function holeIsInterior(
   w: number,
   h: number,
 ): boolean {
-  const ring = dilateMask(hole, w, h, 3);
-  for (let i = 0; i < ring.length; i++) {
-    if (ring[i] && !hole[i] && !fill[i] && !barrier[i]) return false;
+  const members: number[] = [];
+  for (let i = 0; i < hole.length; i++) if (hole[i]) members.push(i);
+  return ringIsInterior(fill, barrier, members, w, h);
+}
+
+/** holeIsInterior for a pocket given as pixel indices: walks only the
+ *  3-pass dilation ring around it (same edge rules as dilateMask) instead of
+ *  dilating a full-page copy per pocket. */
+function ringIsInterior(fill: Uint8Array, barrier: Uint8Array, members: number[], w: number, h: number): boolean {
+  const seen = new Map<number, number>(); // pixel → passes to reach it
+  let frontier = members;
+  for (const m of members) seen.set(m, 0);
+  for (let pass = 1; pass <= 3; pass++) {
+    const next: number[] = [];
+    for (const i of frontier) {
+      const x = i % w;
+      const y = (i / w) | 0;
+      const rowIn = y >= 1 && y <= h - 2;
+        const colIn = x >= 1 && x <= w - 2;
+        const nb = [rowIn && x >= 2 ? i - 1 : -1, rowIn && x <= w - 3 ? i + 1 : -1, colIn && y >= 2 ? i - w : -1, colIn && y <= h - 3 ? i + w : -1];
+      for (const j of nb) {
+        if (j < 0 || seen.has(j)) continue;
+        seen.set(j, pass);
+        if (!fill[j] && !barrier[j]) return false;
+        next.push(j);
+      }
+    }
+    frontier = next;
   }
   return true;
 }

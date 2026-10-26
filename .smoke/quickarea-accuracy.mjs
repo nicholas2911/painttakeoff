@@ -18,7 +18,10 @@ const BEFORE = { 'HOBBY ROOM': 233, 'OFFICE 3': 14, 'COMMUNITY CENTRE': 250 }; /
 // = 24.64 m2 = 265.2 sq ft, dimension strings right at the room).
 // OFFICE 3 + COMMUNITY CENTRE: traced polygon (tool-exact page-space area).
 // Screen positions match the v0.8.2 layout at 1500x950 (toolbar + step bar).
-const PRINTED_TRUTH = {};
+// Reference areas traced with the Ceiling tool on these exact regions
+// (2026-10-25). Frozen: re-tracing in the test was flaky — clicks sometimes
+// landed before the page settled (Office 3 read 21 or 29 sq ft).
+const PRINTED_TRUTH = { 'HOBBY ROOM': 370, 'OFFICE 3': 21, 'COMMUNITY CENTRE': 388 };
 const ROOMS = [
   {
     name: 'HOBBY ROOM',

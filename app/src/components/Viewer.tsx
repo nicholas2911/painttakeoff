@@ -229,9 +229,11 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
       setPageDims({ w: 0, h: 0 });
       return;
     }
+    let loaded: PDFPageProxy | null = null;
     plan.doc.getPage(pageNum).then(
       (page) => {
         if (cancelled) return;
+        loaded = page;
         pageRef.current = page;
         // Page space = inherent orientation + the user's rotation.
         const vp = page.getViewport({ scale: 1, rotation: (page.rotate + rotation) % 360 });
@@ -243,6 +245,13 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(props, ref)
     );
     return () => {
       cancelled = true;
+      // Leaving this page: free pdf.js's cached drawing data for it. A
+      // no-op (returns false) if a render is still in flight.
+      try {
+        loaded?.cleanup();
+      } catch {
+        /* document already closed (project switched) — nothing to free */
+      }
     };
   }, [plan, pageNum, rotation]);
 

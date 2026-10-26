@@ -45,6 +45,9 @@ export default function PagePickerModal(props: {
         thumbsRef.current.set(pageIdx, canvas.toDataURL('image/png'));
         img.src = thumbsRef.current.get(pageIdx)!;
         setThumbVersion((v) => v + 1);
+        // pdf.js keeps every rendered page's operator list until cleanup();
+        // across a whole set of thumbnails that was ~35 MB held for nothing.
+        page.cleanup();
       } catch {
         /* thumb just stays blank */
       } finally {

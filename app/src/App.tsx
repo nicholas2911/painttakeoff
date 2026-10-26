@@ -42,20 +42,15 @@ import {
 } from './measure/pageProps';
 import { loadPresets, savePresets, MAX_PRESETS, type ToolPreset } from './measure/toolPresets';
 import { findTextAt, plausibleDimension } from './pdf/dimensions';
+import { readScaleNote, type ScaleSuggestion } from './pdf/scaleNotes';
 import {
-  barrierMap,
-  bigBarrierMask,
-  cleanBarrierMap,
-  dilateMask,
-  growWithin,
   floodFillFromBarrier,
-  interiorPockets,
   maskPixelCount,
   maskToCanvas,
-  perimeterEdges,
   polygonToMask,
   type FillMask,
 } from './measure/floodfill';
+import { prepareRoomFinder, roomNumbers, type RoomFinder } from './measure/quickArea';
 import type { PagePoint, ToolMode, UpdateState, ViewTransform } from './types';
 import pkg from '../package.json';
 import Toolbar from './components/Toolbar';
@@ -173,6 +168,8 @@ export default function App() {
   const [flow, setFlow] = useState<Flow>({ step: 'idle' });
   const [customScaleOpen, setCustomScaleOpen] = useState(false);
   const [qa, setQa] = useState<QaSession | null>(null);
+  /** Quick Area's prepared page (~20 MB of masks) — dropped on page change. */
+  const roomFinderRef = useRef<{ raster: PageRaster; finder: RoomFinder } | null>(null);
   const [qaValues, setQaValues] = useState<QaValues | null>(null);
   const [qaBusy, setQaBusy] = useState(false);
   const [liveMeasure, setLiveMeasure] = useState<LiveMeasure | null>(null);
@@ -186,6 +183,8 @@ export default function App() {
   const [defaultHeightM, setDefaultHeightM] = useState<number>(() => loadDefaultWallHeight());
   const [measureKind, setMeasureKind] = useState<'wall' | 'trim' | 'ceiling'>('wall');
   /** A dimension read off the plan's text layer during Set Scale (prefill). */
+  /** The scale written on the current sheet, offered while it has none. */
+  const [scaleNote, setScaleNote] = useState<ScaleSuggestion | null>(null);
   const [dimGuess, setDimGuess] = useState<{
     meters: number;
     text: string;
@@ -368,6 +367,7 @@ export default function App() {
             if (ctx) {
               await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: sc }), background: '#ffffff' }).promise;
               thumbDataUrl = c.toDataURL('image/jpeg', 0.7);
+              page.cleanup();
             }
           } catch { /* thumb optional */ }
           const project: ProjectMeta = {
@@ -1005,6 +1005,23 @@ export default function App() {
     setQaBusy(false);
   }, []);
 
+  // Offer the sheet's own written scale while the page has none.
+  useEffect(() => {
+    setScaleNote(null);
+    if (!plan || scale) return;
+    let live = true;
+    void plan.doc
+      .getPage(pageNum)
+      .then((page) => readScaleNote(page))
+      .then((note) => {
+        if (live) setScaleNote(note);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [plan, pageNum, scale]);
+
   // Changing page abandons anything half-done on the old page: an unfinished
   // chain, the first click of a scale, an open Quick Area room. Otherwise the
   // next click lands on the NEW page and mixes the two (a scale built from
@@ -1013,7 +1030,8 @@ export default function App() {
     resetInteraction();
     cancelQa();
     setFlow((f) => (f.step === 'idle' ? f : { step: 'idle' }));
-  }, [pageNum, resetInteraction, cancelQa]);
+    roomFinderRef.current = null; // free the old page's Quick Area masks
+  }, [pageNum, plan, resetInteraction, cancelQa]);
 
   /** Display/area mask: the room's solid region (fill + interior holes +
    *  their outlines, grown back out to the drawn wall lines), minus cut-outs. */
@@ -1029,23 +1047,15 @@ export default function App() {
   const qaNumbers = useCallback(
     (sess: QaSession) => {
       if (!scale) return { floorAreaM2: 0, perimeterM: 0 };
-      const mPerPx = sess.base.pointsPerPixel / scale.pointsPerMeter;
-      const composite = qaComposite(sess);
-      // Perimeter = outer walls only: big barrier components (walls) count,
-      // text/symbol speckle doesn't; cut-out outlines don't either.
-      const edges = perimeterEdges({
-        fill: sess.base.data,
-        w: sess.base.width,
-        h: sess.base.height,
+      return roomNumbers({
+        base: sess.base,
+        composite: qaComposite(sess).data,
         barrier: sess.barrier,
         bigBarrier: sess.bigBarrier,
         holes: sess.cutouts.filter((c) => c.kind === 'flood').map((c) => c.mask),
         polys: sess.cutouts.filter((c) => c.kind === 'poly').map((c) => c.mask),
+        pointsPerMeter: scale.pointsPerMeter,
       });
-      return {
-        floorAreaM2: maskPixelCount(composite.data) * mPerPx * mPerPx,
-        perimeterM: edges * mPerPx,
-      };
     },
     [scale, qaComposite],
   );
@@ -1063,18 +1073,16 @@ export default function App() {
         if (!ctx) return;
 
         if (!qa || qa.sub === 'fill') {
-          const img = ctx.getImageData(0, 0, raster.canvas.width, raster.canvas.height);
-          // Clean the barrier map first: text, tags, fixture outlines and
-          // dashes must not act as walls, or the fill splits around them.
-          const raw = barrierMap(img, 0);
-          const { cleaned, stats } = cleanBarrierMap(raw, raster.canvas.width, raster.canvas.height);
-          console.debug(
-            `[qa] barrier: kept ${stats.keptPx}px in ${stats.keptComponents} runs; ` +
-              `removed ${stats.removedPx}px in ${stats.removedComponents} fragments`,
-          );
-          const barrier = dilateMask(cleaned, raster.canvas.width, raster.canvas.height, 2);
-          // Diagnostics: stash the cleaned barrier + fill as images for tuning.
-          {
+          // One prepared finder per page raster: clicking a second room on
+          // the same page skips the wall-map work entirely.
+          if (roomFinderRef.current?.raster !== raster) {
+            const img = ctx.getImageData(0, 0, raster.canvas.width, raster.canvas.height);
+            roomFinderRef.current = { raster, finder: prepareRoomFinder(img) };
+          }
+          const room = roomFinderRef.current.finder.fillAt(bx, by, raster.pointsPerPixel, scale.pointsPerMeter);
+          // Diagnostics: stash the cleaned barrier + fill as an image for tuning
+          // (window.__qaBarrier in DevTools).
+          if (room) {
             const dbg = document.createElement('canvas');
             dbg.width = raster.canvas.width;
             dbg.height = raster.canvas.height;
@@ -1082,9 +1090,14 @@ export default function App() {
             if (dctx) {
               dctx.drawImage(raster.canvas, 0, 0);
               const im = dctx.getImageData(0, 0, dbg.width, dbg.height);
-              for (let i = 0; i < cleaned.length; i++) {
-                if (cleaned[i]) {
-                  const o = i * 4;
+              for (let i = 0; i < room.cleaned.length; i++) {
+                const o = i * 4;
+                if (room.area.data[i]) {
+                  im.data[o] = Math.round(im.data[o] * 0.6 + 40);
+                  im.data[o + 1] = Math.round(im.data[o + 1] * 0.6 + 90);
+                  im.data[o + 2] = 255;
+                  im.data[o + 3] = 255;
+                } else if (room.cleaned[i]) {
                   im.data[o] = 255;
                   im.data[o + 1] = 0;
                   im.data[o + 2] = 200;
@@ -1095,75 +1108,15 @@ export default function App() {
             }
             (window as unknown as { __qaBarrier?: HTMLCanvasElement }).__qaBarrier = dbg;
           }
-          // Fill against a D-dilated barrier (seals door openings). Doors
-          // are ~10px wide at 1:75 but ~33px at 1:48, and sealing costs
-          // area accuracy (the fill stops D px inside the wall faces) —
-          // so start small and only dilate harder if the result looks like
-          // a leak (a huge fraction of the sheet filled).
-          const rasterPx = raster.canvas.width * raster.canvas.height;
-          let mask: FillMask | null = null;
-          let usedD = 0;
-          for (const D of [6, 12, 18]) {
-            usedD = D;
-            mask = floodFillFromBarrier(
-              dilateMask(cleaned, raster.canvas.width, raster.canvas.height, D),
-              raster.canvas.width,
-              raster.canvas.height,
-              bx,
-              by,
-            );
-            console.debug('[qa] try D =', D, '→ mask', mask ? maskPixelCount(mask.data) : 'null');
-            if (!mask || maskPixelCount(mask.data) < rasterPx * 0.25) break;
-          }
-          console.debug('[qa] click at buffer', Math.round(bx), Math.round(by), 'mask:', mask ? maskPixelCount(mask.data) : 'null');
-          if (mask) {
-            const dbg = (window as unknown as { __qaBarrier?: HTMLCanvasElement }).__qaBarrier;
-            if (dbg) {
-              const dctx = dbg.getContext('2d');
-              if (dctx) {
-                const im = dctx.getImageData(0, 0, dbg.width, dbg.height);
-                for (let i = 0; i < mask.data.length; i++) {
-                  if (mask.data[i]) {
-                    const o = i * 4;
-                    im.data[o] = Math.round(im.data[o] * 0.6 + 40);
-                    im.data[o + 1] = Math.round(im.data[o + 1] * 0.6 + 90);
-                    im.data[o + 2] = 255;
-                    im.data[o + 3] = 255;
-                  }
-                }
-                dctx.putImageData(im, 0, 0);
-              }
-            }
-          }
-          if (!mask || maskPixelCount(mask.data) < 200) {
-            showToast('Couldn’t find a closed shape there — try the middle of a room.');
+          if (!room) {
+            showToast('Couldn’t find a closed room there — click the middle of a room, or use Measure for open areas.');
             return;
           }
-          // The fill stopped D px short of every wall (the barrier was
-          // thickened to seal doors). Grow it back D px, never across a drawn
-          // line, so the area reaches the true wall faces. At a door it can
-          // only bulge D px into the opening — the thickened seal still holds.
-          mask = { ...mask, data: growWithin(mask.data, cleaned, mask.width, mask.height, usedD) };
-          mask.pointsPerPixel = raster.pointsPerPixel;
-          // The room's solid region: the fill plus its interior pockets
-          // (text counters, fixture interiors). No wall pixels are added —
-          // area stays net of the wall lines.
-          const pockets = interiorPockets(mask.data, barrier, mask.width, mask.height);
-          const solid = mask.data.slice();
-          for (let i = 0; i < solid.length; i++) {
-            if (pockets[i]) solid[i] = 1;
-          }
-          const areaMask: FillMask = {
-            ...mask,
-            data: solid,
-          };
           const session: QaSession = {
             raster,
-            base: areaMask,
-            barrier,
-            // Wall classification runs on the CLEANED barrier map — text is
-            // already gone, walls are the big connected runs.
-            bigBarrier: bigBarrierMask(cleaned, mask.width, mask.height),
+            base: room.area,
+            barrier: room.barrier,
+            bigBarrier: room.bigBarrier,
             cutouts: [],
             sub: qa?.sub === 'cutout' ? 'cutout' : 'fill',
           };
@@ -1998,9 +1951,29 @@ export default function App() {
     } else if (!scale) {
       stepBar = (
         <StepBar kind="action" title="Step 2 of 3 · Set the scale">
-          Click <strong>Set Scale</strong> in the toolbar, then click the two ends of
-          anything whose length you know. If the plan already says its scale, pick it from{' '}
-          <strong>Common scales…</strong> instead.
+          {scaleNote ? (
+            <>
+              {scaleNote.paper ? (
+                <>
+                  This sheet says <strong>{scaleNote.note}</strong>, but this PDF is {scaleNote.paper.actual} size — on
+                  this page the drawing is really <strong>1:{scaleNote.ratio}</strong>.{' '}
+                </>
+              ) : (
+                <>
+                  This sheet says <strong>{scaleNote.note}</strong>.{' '}
+                </>
+              )}
+              <button className="tool go-button step-bar-action" onClick={() => applyScaleRatio(scaleNote.ratio)}>
+                Use 1:{scaleNote.ratio}
+              </button>{' '}
+              or click <strong>Set Scale</strong> and the two ends of something whose length you know.
+            </>
+          ) : (
+            <>
+              Click <strong>Set Scale</strong> in the toolbar, then click the two ends of anything whose length you
+              know. If the plan already says its scale, pick it from <strong>Common scales…</strong> instead.
+            </>
+          )}
         </StepBar>
       );
     } else {

@@ -49,6 +49,11 @@ const WHATS_NEW: Record<string, string[]> = {
     'Invoices get a classic letterhead look — your company name in serif, a green rule, and the total boxed in green.',
     'The Price Book, page picker and Measurements panel match the new forest-and-cream style, in light and dark.',
   ],
+  '0.8.4': [
+    'Quick Area is about 10× faster, and measures rooms more accurately — it now sees past furniture and dimension lines, and stops at doorways on large-scale house plans.',
+    'The app reads the scale written on each sheet and offers it with one click — and catches “1:100 @ A1” notes on A3 PDFs (really 1:200).',
+    'No more giant “rooms” when a click escapes across the whole sheet, and the app uses far less memory with big plan sets.',
+  ],
 };
 
 const TIPS = [

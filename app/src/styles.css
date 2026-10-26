@@ -3405,3 +3405,10 @@ input[type='range'] {
 .inv-table th.inv-right {
   text-align: right;
 }
+
+/* "Use 1:48" — the sheet's own written scale, offered in the step bar */
+.step-bar-action {
+  padding: 3px 10px;
+  font-size: 13px;
+  vertical-align: baseline;
+}
